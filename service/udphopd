@@ -1,0 +1,43 @@
+#!/bin/sh
+#
+# $FreeBSD$
+#
+
+# PROVIDE: udphop
+# REQUIRE: LOGIN DAEMON
+# KEYWORD: shutdown
+
+# Add these lines to /etc/rc.conf.local or /etc/rc.conf to enable `udphopd':
+#
+# udphopd_enable (bool):          Set to "NO" by default.
+#                                 Set it to "YES" to enable udphopd
+# udphopd_config (path):          Set to "/usr/local/etc/udphopd/config.conf" by default
+#                                 Set it to the udphopd server config
+
+. /etc/rc.subr
+
+name="udphopd"
+rcvar="${name}_enable"
+
+eval ": \${${name}_enable:=\"NO\"}"
+eval ": \${${name}_config:=\"/usr/local/etc/${name}/config.conf\"}"
+
+pidfile="/var/run/${name}.pid"
+procname="/usr/local/bin/udphop"
+configfile="$(eval echo \${${name}_config})"
+
+start_precmd="udphopd_startprecmd"
+start_cmd=udphopd_start
+
+udphopd_startprecmd()
+{
+	touch "${pidfile}"
+}
+
+udphopd_start()
+{
+	/usr/sbin/daemon -c -p ${pidfile} ${procname} ${configfile} > /dev/null 2>&1
+}
+
+load_rc_config "$name"
+run_rc_command "$1"
