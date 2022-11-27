@@ -11,6 +11,9 @@
 
 为了方便家宽 Full Cone NAT 用户使用，UDP Hop以服务端基本模式运行的时候可以利用 STUN 打洞，同时支持 IPv4 与 IPv6。
 
+### 细节介绍
+不同于 TCP 伪装工具，UDP Hop 全程保持 UDP，并且会在内部为每一个 UDP 连接（“源IP:源端口”的二元组）分配 Session ID，以此区分多个 UDP 连接。超时时间为 180 秒，换句话说，单个 Session 超过 3 分钟无流量就会自动清除。
+
 ## 用法
 ### 基本用法
 `udphop config.conf`
