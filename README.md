@@ -3,11 +3,11 @@
 ## 简单介绍
 但凡使用过三大运营商的家用宽带，并且需要家宽互联，那么几乎都会体验到 UDP 被限速的情况。
 
-为了解决UDP限速，目前比较常用的做法是使用 udp2raw 之类的工具“变成” TCP 流量。可惜的是， udp2raw 服务端版只支持 Linux。
+为了解决UDP限速，目前比较常用的做法是使用 udp2raw 之类的工具“变成” TCP 流量。可惜的是， udp2raw 服务端版只支持 Linux。类似 udp2raw 的还有 Phantun。
 
-那么能不能继续用 UDP 规避限速？也许可以，有人提到过，UDP 被限速后只要重新连接，速度就会重新恢复。
+那么能不能继续用 UDP 规避限速？这样做灵活性就可以高一点了。也许可以，有人提到过，UDP 被限速后只要重新连接，速度就会重新恢复。
 
-既然如此，那就可以基于这个思路做一个新工具——就叫做 UDP Hop。**每隔一段时间，UDP Hop客户端就会自动重新建立连接，并把传输链路转移到新连接上继续传送。**
+既然如此，那就可以基于这个思路造一个新工具——就叫做 UDP Hop。**每隔一段时间，UDP Hop客户端就会自动重新建立连接，并把传输链路转移到新连接上继续传送。**
 
 为了方便家宽 Full Cone NAT 用户使用，UDP Hop以服务端基本模式运行的时候可以利用 STUN 打洞，同时支持 IPv4 与 IPv6。
 
@@ -177,7 +177,7 @@ vcpkg install botan:x64-windows botan:x64-windows-static
 ```
 （如果需要 ARM 或者 32 位 x86 版本，请自行调整选项）
 
-然后用 Visual Studio 打开 `sln\punchnat.sln` 自行编译
+然后用 Visual Studio 打开 `sln\udphop.sln` 自行编译
 
 ### FreeBSD
 同样，请先安装依赖项 asio 以及 botan2，另外还需要 cmake，用系统自带 pkg 即可安装：
