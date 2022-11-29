@@ -10,10 +10,10 @@
 #include <map>
 #include <random>
 #include <filesystem>
-#include "aes-256.hpp"
+#include "aead.hpp"
 
 enum class running_mode { unknow, empty, server, client };
-enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb };
+enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };
 constexpr uint16_t dport_refresh_default = 60;
 constexpr uint16_t dport_refresh_minimal = 20;
 
