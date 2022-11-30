@@ -25,9 +25,9 @@ else()
 	target_link_libraries(${PROJECT_NAME} PRIVATE botan-2)
 endif()
 
-if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-	target_link_libraries(${PROJECT_NAME} PUBLIC uring)
-endif()
+#if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+#	target_link_libraries(${PROJECT_NAME} PUBLIC uring)
+#endif()
 
 
 target_link_libraries(${PROJECT_NAME} PRIVATE SHAREDEFINES)
