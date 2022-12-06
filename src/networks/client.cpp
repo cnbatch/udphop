@@ -31,6 +31,8 @@ bool client_mode::start()
 		if (ec)
 		{
 			std::cerr << "Listen Address incorrect - " << current_settings.listen_on << "\n";
+			if (!current_settings.log_messages.empty())
+				print_message_to_file("Listen Address incorrect - " + current_settings.listen_on + "\n", current_settings.log_messages);
 			return false;
 		}
 
@@ -104,6 +106,8 @@ void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 				else if (udp_endpoints.size() == 0)
 				{
 					std::cerr << "destination address not found\n";
+					if (!current_settings.log_messages.empty())
+						print_message_to_file("destination address not found\n", current_settings.log_messages);
 					std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 				}
 				else

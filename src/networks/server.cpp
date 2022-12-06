@@ -128,6 +128,8 @@ bool server_mode::start()
 		if (ec)
 		{
 			std::cerr << "Listen Address incorrect - " << current_settings.listen_on << "\n";
+			if (!current_settings.log_messages.empty())
+				print_message_to_file("Listen Address incorrect - " + current_settings.listen_on + "\n", current_settings.log_messages);
 			return false;
 		}
 
@@ -148,6 +150,8 @@ bool server_mode::start()
 		catch (std::exception &ex)
 		{
 			std::cerr << ex.what() << "\tPort Number: " << port_number << std::endl;
+			if (!current_settings.log_messages.empty())
+				print_message_to_file(ex.what() + ("\tPort Number: " + std::to_string(port_number)) + "\n", current_settings.log_messages);
 			running_well = false;
 		}
 	}
@@ -237,16 +241,21 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	if (calculate_difference(timestamp, packet_timestamp) > TIME_GAP)
 		return;
 
-	std::unique_lock locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
-	if (auto wrapper_iter = wrapper_session_map_to_source_udp.find(wrapper); wrapper_iter != wrapper_session_map_to_source_udp.end())
 	{
-		if (wrapper_iter->second != peer)
-			std::cout << "peer address:ip changed, old: " << wrapper_iter->second << ", new: " << peer << "\n";
-		wrapper_iter->second = std::move(peer);
+		std::shared_lock shared_locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
+		if (auto wrapper_iter = wrapper_session_map_to_source_udp.find(wrapper); wrapper_iter != wrapper_session_map_to_source_udp.end())
+		{
+			if (wrapper_iter->second != peer)
+			{
+				shared_locker_wrapper_session_map_to_source_udp.unlock();
+				std::unique_lock unique_locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
+				if (wrapper_iter->second != peer)
+					wrapper_iter->second = std::move(peer);
+			}
+		}
+		else
+			return;
 	}
-	else
-		return;
-	locker_wrapper_session_map_to_source_udp.unlock();
 
 	wrapper->forwarder_ptr.store(udp_servers[port_number].get());
 
@@ -291,7 +300,7 @@ void server_mode::udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> 
 		return;
 
 	std::unique_lock locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
-	wrapper_session_map_to_source_udp[wrapper] = std::move(peer);
+	wrapper_session_map_to_source_udp[wrapper] = peer;
 	locker_wrapper_session_map_to_source_udp.unlock();
 	wrapper->forwarder_ptr.store(udp_servers[port_number].get());
 
@@ -358,12 +367,14 @@ bool server_mode::update_local_udp_target(std::shared_ptr<udp_client> target_con
 		udp::resolver::results_type udp_endpoints = target_connector->get_remote_hostname(destination_address, destination_port, ec);
 		if (ec)
 		{
-			std::cout << ec.message() << "\n";
+			std::cerr << ec.message() << "\n";
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else if (udp_endpoints.size() == 0)
 		{
-			std::cout << "destination address not found\n";
+			std::cerr << "destination address not found\n";
+			if (!current_settings.log_messages.empty())
+				print_message_to_file("destination address not found\n", current_settings.log_messages);
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else
@@ -387,7 +398,7 @@ void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_
 		ss << "External IPv4 Port: " << ipv4_port << "\n";
 		std::string message = ss.str();
 		if (!current_settings.log_ip_address.empty())
-			asio::post(asio_strand, [message, log_ip_address = current_settings.log_ip_address]() { print_message_to_file(message, log_ip_address); });
+			print_ip_to_file(message, current_settings.log_ip_address);
 		std::cout << message;
 	}
 
@@ -404,7 +415,7 @@ void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_
 		ss << "External IPv6 Port: " << ipv6_port << "\n";
 		std::string message = ss.str();
 		if (!current_settings.log_ip_address.empty())
-			asio::post(asio_strand, [message, log_ip_address = current_settings.log_ip_address]() { print_message_to_file(message, log_ip_address); });
+			print_ip_to_file(message, current_settings.log_ip_address);
 		std::cout << message;
 	}
 }
