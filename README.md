@@ -223,39 +223,20 @@ make
 我没苹果电脑，所有步骤请自行解决。
 
 ### 静态编译注意事项（适用于 Linux 及 NetBSD）
-由于 GNU 工具链的问题，GNU Linker 链接出来的 libbotan-2.a 并不能正常使用（包括系统自带 package manager 安装的版本），就连 Botan 作者本人都无法解决。Botan 作者给出的建议是，使用动态链接库。
+有两种办法
 
-如果确实需要使用静态编译，Botan 作者也有解决办法，那就是生成 botan_all 直接 include。
-
-请按照以下步骤操作：
-
-#### 第一步：
+#### 办法1
+按照正常流程编译好，删除刚刚生成的 udphop 二进制文件，并运行命令
 ```
-git clone https://github.com/randombit/botan.git
-cd botan
-./configure.py --amalgamation --disable-modules=pkcs11
+make VERBOSE=1
 ```
+再从输出的内容提取出最后一条 C++ 链接命令，把中间的 `-lbotan-2` 改成 libbotan-2.a 的**完整路径**，例如 `/usr/lib/x86_64-linux-gnu/libbotan-2.a`。
 
-#### 第二步：
-把生成好的两个 botan_all 复制到 udphop/src/shares
 
-#### 第三步：
-修改 udphop/src/shares/CMakeLists.txt，找到
-```
-add_library(${THISLIB_NAME} STATIC share_defines.cpp)
-```
-修改为
-```
-add_library(${THISLIB_NAME} STATIC "share_defines.cpp" "botan_all.cpp")
-```
+#### 办法2
+打开 src/CMakeLists.txt，把 `target_link_libraries(${PROJECT_NAME} PRIVATE botan-2)` 改成 `target_link_libraries(${PROJECT_NAME} PRIVATE botan-2 -static)`
 
-#### 第四步：
-打开 udphop/src/shares/aead.hpp，把那一大串 `#include <botan_XXXX>` 删掉，改成 `#include "botan_all.h"`
-
-#### 第五步：
-打开 udphop/CMakeLists.txt，把Linux那一行的 `include_directories("/usr/include/botan-2")` 删掉。
-
-这样就可以静态编译了。只是编译出来的二进制十分巨大，比FreeBSD的和Windows的都大得多。
+然后即可正常编译。注意，如果系统使用 glibc 的话，这样会连同 glibc 一并静态编译，从而会跳出有关 getaddrinfo 的警告。
 
 ---
 
