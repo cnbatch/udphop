@@ -32,6 +32,7 @@ class client_mode
 
 	std::shared_mutex mutex_udp_target;
 	std::unique_ptr<udp::endpoint> udp_target;
+	std::unique_ptr<udp::endpoint> previous_udp_target;
 
 	std::shared_mutex mutex_wrapper_changeport_timestamp;
 	std::map<data_wrapper<forwarder> *, std::atomic<int64_t>> wrapper_changeport_timestamp;

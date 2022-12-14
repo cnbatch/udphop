@@ -115,6 +115,7 @@ void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 					endpoint_target = *udp_endpoints.begin();
 					std::scoped_lock locker{ mutex_udp_target };
 					udp_target = std::make_unique<udp::endpoint>(endpoint_target);
+					previous_udp_target = std::make_unique<udp::endpoint>(endpoint_target);
 					break;
 				}
 			}
@@ -193,6 +194,18 @@ void client_mode::udp_client_incoming_to_udp(data_wrapper<forwarder> *wrapper, s
 	lock_wrapper_session_map_to_udp.unlock();
 
 	udp_access_point->async_send_out(data, received_data_ptr, received_size, udp_endpoint);
+
+	std::shared_lock shared_lock_udp_target{ mutex_udp_target };
+	if (*udp_target != peer && *previous_udp_target != peer)
+	{
+		shared_lock_udp_target.unlock();
+		std::unique_lock unique_lock_udp_target{ mutex_udp_target };
+		if (*udp_target != peer)
+		{
+			*previous_udp_target = *udp_target;
+			*udp_target = peer;
+		}
+	}
 }
 
 udp::endpoint client_mode::get_remote_address()
@@ -329,19 +342,15 @@ void client_mode::loop_change_new_port()
 		if (udp_forwarder == nullptr)
 			continue;
 
-		uint16_t new_port_numer = current_settings.destination_port;
 		if (current_settings.destination_port_start != current_settings.destination_port_end)
-			new_port_numer = generate_new_port_number(current_settings.destination_port_start, current_settings.destination_port_end);
-
-		udp::endpoint current_udp_target;
-		std::shared_lock locker{ mutex_udp_target };
-		if (current_settings.destination_port_start != current_settings.destination_port_end)
-			current_udp_target = udp::endpoint(udp_target->address(), new_port_numer);
-		else
-			current_udp_target = *udp_target;
-		locker.unlock();
+		{
+			uint16_t new_port_numer = generate_new_port_number(current_settings.destination_port_start, current_settings.destination_port_end);
+			std::scoped_lock locker{ mutex_udp_target };
+			*previous_udp_target = *udp_target;
+			*udp_target = udp::endpoint(udp_target->address(), new_port_numer);
+		}
+		
 		forwarder *new_forwarder_ptr = udp_forwarder.get();
-
 		new_forwarder_ptr->send_out(create_raw_random_data(EMPTY_PACKET_SIZE), local_empty_target, ec);
 		if (ec)
 		{
