@@ -135,6 +135,20 @@ encryption_algorithm=AES-GCM
 
 预编译的二进制文件全部都是静态编译。Linux 版本基本上都是静态编译，但 libc 除外，因此准备了两个版本，一个用于 glibc，另一个用于 musl。
 
+### Docker 镜像
+
+对于 Linux 环境，另有提供 Docker 镜像（目前仅限 x64），下载 udphop_image.zip 并解压，再使用 `docker load -i udphop_image.tar` 导入。
+
+导入后，使用方式为：
+```
+docker run -v /path/to/config_file.conf:/config_file.conf udphop config_file.conf
+```
+
+例如：
+```
+docker run -v /home/someone/config1.conf:/config1.conf udphop config1.conf
+```
+
 ---
 
 ## 建立服务
