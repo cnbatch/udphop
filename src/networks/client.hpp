@@ -12,37 +12,37 @@ class client_mode
 	user_settings current_settings;
 	std::unique_ptr<udp_server> udp_access_point;
 
-	std::mutex mutex_id_map_to_forwarder;
-	std::map<uint32_t, std::unique_ptr<forwarder>> id_map_to_forwarder;
+	std::shared_mutex mutex_id_map_to_forwarder;
+	std::map<uint32_t, std::shared_ptr<forwarder>> id_map_to_forwarder;
 
 
 	std::shared_mutex mutex_udp_session_map_to_wrapper;
-	std::map<udp::endpoint, data_wrapper<forwarder> *> udp_session_map_to_wrapper;
+	std::map<udp::endpoint, std::shared_ptr<data_wrapper<forwarder>>> udp_session_map_to_wrapper;
 	std::shared_mutex mutex_wrapper_session_map_to_udp;
 	std::map<uint32_t, udp::endpoint> wrapper_session_map_to_udp;
 
 
 	std::mutex mutex_wrapper_channels;
-	std::map<uint32_t, std::unique_ptr<data_wrapper<forwarder>>> wrapper_channels;
+	std::map<uint32_t, std::shared_ptr<data_wrapper<forwarder>>> wrapper_channels;
 
 	std::mutex mutex_expiring_wrapper;
-	std::map<uint32_t, std::pair<std::unique_ptr<data_wrapper<forwarder>>, int64_t>> expiring_wrapper;
+	std::map<uint32_t, std::pair<std::shared_ptr<data_wrapper<forwarder>>, int64_t>> expiring_wrapper;
 	std::mutex mutex_expiring_forwarders;
-	std::map<forwarder *, std::pair<std::unique_ptr<forwarder>, int64_t>> expiring_forwarders;
+	std::map<std::shared_ptr<forwarder>, int64_t> expiring_forwarders;
 
 	std::shared_mutex mutex_udp_target;
-	std::unique_ptr<udp::endpoint> udp_target;
-	std::unique_ptr<udp::endpoint> previous_udp_target;
+	std::shared_ptr<udp::endpoint> udp_target;
+	std::shared_ptr<udp::endpoint> previous_udp_target;
 
 	std::shared_mutex mutex_wrapper_changeport_timestamp;
-	std::map<data_wrapper<forwarder> *, std::atomic<int64_t>> wrapper_changeport_timestamp;
+	std::map<std::shared_ptr<data_wrapper<forwarder>>, std::atomic<int64_t>> wrapper_changeport_timestamp;
 
 	asio::steady_timer timer_find_timeout;
 	asio::steady_timer timer_change_ports;
 	asio::strand<asio::io_context::executor_type> asio_strand;
 
 	void udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number);
-	void udp_client_incoming_to_udp(data_wrapper<forwarder> *wrapper, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
+	void udp_client_incoming_to_udp(std::shared_ptr<data_wrapper<forwarder>>, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
 	udp::endpoint get_remote_address();
 
 	uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num);

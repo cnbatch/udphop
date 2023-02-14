@@ -252,9 +252,9 @@ public:
 class forwarder : public udp_client
 {
 public:
-	using process_data_t = std::function<void(data_wrapper<forwarder> *, std::shared_ptr<uint8_t[]>, size_t, udp::endpoint&&, asio::ip::port_type)>;
+	using process_data_t = std::function<void(std::shared_ptr<data_wrapper<forwarder>>, std::shared_ptr<uint8_t[]>, size_t, udp::endpoint&&, asio::ip::port_type)>;
 	forwarder() = delete;
-	forwarder(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand, data_wrapper<forwarder> *input_wrapper, process_data_t callback_func) :
+	forwarder(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand, std::shared_ptr<data_wrapper<forwarder>> input_wrapper, process_data_t callback_func) :
 		udp_client(io_context, asio_strand, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)),
 		wrapper(input_wrapper), callback(callback_func), task_assigner(asio_strand) {}
 
@@ -265,7 +265,7 @@ public:
 
 	void remove_callback()
 	{
-		callback = [](data_wrapper<forwarder> *wrapper, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&ep, asio::ip::port_type num) {};
+		callback = [](std::shared_ptr<data_wrapper<forwarder>> wrapper, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&ep, asio::ip::port_type num) {};
 	}
 
 private:
@@ -274,11 +274,11 @@ private:
 		if (paused.load() || stopped.load())
 			return;
 
-		asio::post(task_assigner, [this, wrapper_ptr = wrapper.load(), data, data_size, peer_ep = std::move(peer), local_port_number]() mutable
-			{ callback(wrapper_ptr, data, data_size, std::move(peer_ep), local_port_number); });
+		asio::post(task_assigner, [this, data, data_size, peer_ep = std::move(peer), local_port_number]() mutable
+			{ callback(wrapper, data, data_size, std::move(peer_ep), local_port_number); });
 	}
 
-	std::atomic<data_wrapper<forwarder> *> wrapper;
+	std::shared_ptr<data_wrapper<forwarder>> wrapper;
 	process_data_t callback;
 	asio::strand<asio::io_context::executor_type> &task_assigner;
 };
