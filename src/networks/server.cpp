@@ -23,13 +23,9 @@ void server_mode::cleanup_expiring_data_connections()
 		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
 			continue;
 
-		std::unique_lock locker_wrapper_channels{ mutex_wrapper_channels };
+		std::scoped_lock lockers{ mutex_wrapper_channels, mutex_wrapper_session_map_to_source_udp };
 		wrapper_channels.erase(iden);
-		locker_wrapper_channels.unlock();
-
-		std::unique_lock locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
 		wrapper_session_map_to_source_udp.erase(wrapper_ptr);
-		locker_wrapper_session_map_to_source_udp.unlock();
 
 		expiring_wrapper.erase(iter);
 	}
@@ -43,6 +39,8 @@ void server_mode::loop_timeout_sessions()
 		++next_iter;
 		uint32_t iden = iter->first;
 		std::shared_ptr<data_wrapper<udp_server>> wrapper_ptr = iter->second;
+		std::vector<uint8_t> keep_alive_packet = create_empty_data(current_settings.encryption_password, current_settings.encryption, EMPTY_PACKET_SIZE);
+		wrapper_ptr->send_data(std::move(keep_alive_packet), get_remote_address(wrapper_ptr));
 
 		std::scoped_lock locker_wrapper_session_map_to_tcp{ mutex_wrapper_session_map_to_target_udp };
 		std::shared_ptr<udp_client> local_session = wrapper_session_map_to_target_udp[wrapper_ptr];
@@ -203,6 +201,9 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 		}
 	}
 
+	if (data_size < RAW_HEADER_SIZE)
+		return;
+
 	auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
 	if (!error_message.empty() || plain_size == 0)
 		return;
@@ -213,26 +214,34 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 		return;
 	}
 
-	std::shared_lock share_locker_wrapper_channels{ mutex_wrapper_channels, std::defer_lock };
-	std::unique_lock unique_locker_wrapper_channels{ mutex_wrapper_channels, std::defer_lock };
-	share_locker_wrapper_channels.lock();
-	auto wrapper_channel_iter = wrapper_channels.find(iden);
-	if (wrapper_channel_iter == wrapper_channels.end())
+	std::shared_ptr<data_wrapper<udp_server>> wrapper = nullptr;
+
 	{
-		share_locker_wrapper_channels.unlock();
-		unique_locker_wrapper_channels.lock();
-		wrapper_channel_iter = wrapper_channels.find(iden);
+		std::shared_lock share_locker_wrapper_channels{ mutex_wrapper_channels, std::defer_lock };
+		std::unique_lock unique_locker_wrapper_channels{ mutex_wrapper_channels, std::defer_lock };
+		share_locker_wrapper_channels.lock();
+		auto wrapper_channel_iter = wrapper_channels.find(iden);
 		if (wrapper_channel_iter == wrapper_channels.end())
 		{
-			udp_server_incoming_new_connection(data, plain_size, std::move(peer), port_number);
-			return;
+			share_locker_wrapper_channels.unlock();
+			unique_locker_wrapper_channels.lock();
+			wrapper_channel_iter = wrapper_channels.find(iden);
+			if (wrapper_channel_iter == wrapper_channels.end())
+			{
+				udp_server_incoming_new_connection(data, plain_size, std::move(peer), port_number);
+				return;
+			}
+			else
+			{
+				wrapper = wrapper_channel_iter->second;
+			}
 		}
-		unique_locker_wrapper_channels.unlock();
-		share_locker_wrapper_channels.lock();
+		else
+		{
+			wrapper = wrapper_channel_iter->second;
+		}
 	}
 
-	std::shared_ptr<data_wrapper<udp_server>> wrapper = wrapper_channel_iter->second;
-	share_locker_wrapper_channels.unlock();
 	auto [packet_timestamp, received_data, received_size] = wrapper->receive_data(data_ptr, plain_size);
 	if (received_size == 0)
 		return;
@@ -350,7 +359,9 @@ udp::endpoint server_mode::get_remote_address(std::shared_ptr<data_wrapper<udp_s
 {
 	udp::endpoint ep;
 	std::shared_lock locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
-	ep = wrapper_session_map_to_source_udp[wrapper_ptr];
+	auto iter = wrapper_session_map_to_source_udp.find(wrapper_ptr);
+	if (iter != wrapper_session_map_to_source_udp.end())
+		ep = iter->second;
 	locker_wrapper_session_map_to_source_udp.unlock();
 
 	return ep;

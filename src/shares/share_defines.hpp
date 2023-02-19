@@ -52,6 +52,7 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 
 int64_t calculate_difference(int64_t number1, int64_t number2);
 std::vector<uint8_t> create_raw_random_data(size_t mtu_size);
+std::vector<uint8_t> create_empty_data(const std::string &password, encryption_mode mode, size_t mtu_size);
 std::pair<std::string, size_t> encrypt_data(const std::string &password, encryption_mode mode, uint8_t *data_ptr, int length);
 std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode mode, const void *data_ptr, int length, std::string &error_message);
 std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode mode, std::vector<uint8_t> &&plain_data, std::string &error_message);

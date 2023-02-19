@@ -374,6 +374,17 @@ std::vector<uint8_t> create_raw_random_data(size_t mtu_size)
 	return temp_array;
 }
 
+std::vector<uint8_t> create_empty_data(const std::string &password, encryption_mode mode, size_t mtu_size)
+{
+	std::vector<uint8_t> temp_array(mtu_size, 0);
+	uint8_t* ptr = temp_array.data() + (mtu_size / 2);
+	uint64_t* ptr_force_uint64_t = reinterpret_cast<uint64_t*>(ptr);
+	*ptr_force_uint64_t = generate_random_number<uint64_t>();
+	std::string error_message;
+	temp_array = encrypt_data(password, mode, std::move(temp_array), error_message);
+	return temp_array;
+}
+
 std::pair<std::string, size_t> encrypt_data(const std::string &password, encryption_mode mode, uint8_t *data_ptr, int length)
 {
 	size_t cipher_legnth = 0;
