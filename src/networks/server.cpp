@@ -126,8 +126,7 @@ bool server_mode::start()
 		if (ec)
 		{
 			std::cerr << "Listen Address incorrect - " << current_settings.listen_on << "\n";
-			if (!current_settings.log_messages.empty())
-				print_message_to_file("Listen Address incorrect - " + current_settings.listen_on + "\n", current_settings.log_messages);
+			print_message_to_file("Listen Address incorrect - " + current_settings.listen_on + "\n", current_settings.log_messages);
 			return false;
 		}
 
@@ -147,9 +146,9 @@ bool server_mode::start()
 		}
 		catch (std::exception &ex)
 		{
-			std::cerr << ex.what() << "\tPort Number: " << port_number << std::endl;
-			if (!current_settings.log_messages.empty())
-				print_message_to_file(ex.what() + ("\tPort Number: " + std::to_string(port_number)) + "\n", current_settings.log_messages);
+			std::string error_message = ex.what() + ("\tPort Number: " + std::to_string(port_number));
+			std::cerr << error_message << std::endl;
+			print_message_to_file(error_message + "\n", current_settings.log_messages);
 			running_well = false;
 		}
 	}
@@ -174,7 +173,9 @@ bool server_mode::start()
 	}
 	catch (std::exception &ex)
 	{
-		std::cerr << ex.what() << std::endl;
+		std::string error_message = ex.what();
+		std::cerr << error_message << std::endl;
+		print_message_to_file(error_message + "\n", current_settings.log_messages);
 		running_well = false;
 	}
 
@@ -378,14 +379,15 @@ bool server_mode::update_local_udp_target(std::shared_ptr<udp_client> target_con
 		udp::resolver::results_type udp_endpoints = target_connector->get_remote_hostname(destination_address, destination_port, ec);
 		if (ec)
 		{
-			std::cerr << ec.message() << "\n";
+			std::string error_message = ec.message();
+			std::cerr << error_message << "\n";
+			print_message_to_file(error_message + "\n", current_settings.log_messages);
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else if (udp_endpoints.size() == 0)
 		{
 			std::cerr << "destination address not found\n";
-			if (!current_settings.log_messages.empty())
-				print_message_to_file("destination address not found\n", current_settings.log_messages);
+			print_message_to_file("destination address not found\n", current_settings.log_messages);
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else

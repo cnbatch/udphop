@@ -23,15 +23,15 @@ class server_mode
 	std::map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
 
 	std::shared_mutex mutex_wrapper_session_map_to_target_udp;
-	std::map<std::shared_ptr<data_wrapper<udp_server>>, std::shared_ptr<udp_client>> wrapper_session_map_to_target_udp;
+	std::map<std::shared_ptr<data_wrapper<udp_server>>, std::shared_ptr<udp_client>, std::owner_less<>> wrapper_session_map_to_target_udp;
 	std::shared_mutex mutex_wrapper_session_map_to_source_udp;
-	std::map<std::shared_ptr<data_wrapper<udp_server>>, udp::endpoint> wrapper_session_map_to_source_udp;
+	std::map<std::shared_ptr<data_wrapper<udp_server>>, udp::endpoint, std::owner_less<>> wrapper_session_map_to_source_udp;
 
 	std::shared_mutex mutex_wrapper_channels;
 	std::map<uint32_t, std::shared_ptr<data_wrapper<udp_server>>> wrapper_channels;
 
 	std::mutex mutex_expiring_wrapper;
-	std::map<std::shared_ptr<data_wrapper<udp_server>>, int64_t> expiring_wrapper;
+	std::map<std::shared_ptr<data_wrapper<udp_server>>, int64_t, std::owner_less<>> expiring_wrapper;
 
 	asio::steady_timer timer_send_data;
 	asio::steady_timer timer_find_timeout;

@@ -31,8 +31,7 @@ bool client_mode::start()
 		if (ec)
 		{
 			std::cerr << "Listen Address incorrect - " << current_settings.listen_on << "\n";
-			if (!current_settings.log_messages.empty())
-				print_message_to_file("Listen Address incorrect - " + current_settings.listen_on + "\n", current_settings.log_messages);
+			print_message_to_file("Listen Address incorrect - " + current_settings.listen_on + "\n", current_settings.log_messages);
 			return false;
 		}
 
@@ -56,7 +55,9 @@ bool client_mode::start()
 	}
 	catch (std::exception &ex)
 	{
-		std::cerr << ex.what() << std::endl;
+		std::string error_message = ex.what();
+		std::cerr << error_message << std::endl;
+		print_message_to_file(error_message + "\n", current_settings.log_messages);
 		return false;
 	}
 
@@ -109,7 +110,7 @@ void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 						{
 							std::string error_message = ec.message();
 							std::cerr << error_message << "\n";
-							print_message_to_file(error_message, current_settings.log_messages);
+							print_message_to_file(error_message + "\n", current_settings.log_messages);
 							std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 						}
 						else if (udp_endpoints.size() == 0)
@@ -143,7 +144,7 @@ void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 				{
 					std::string error_message = "Cannot Send Data:\n" + ec.message();
 					std::cerr << error_message << "\n";
-					print_message_to_file(error_message, current_settings.log_messages);
+					print_message_to_file(error_message + "\n", current_settings.log_messages);
 					return;
 				}
 				udp_forwarder->async_receive();

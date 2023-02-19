@@ -710,6 +710,9 @@ void bitwise_not(uint8_t *input_data, size_t length)
 
 void print_ip_to_file(const std::string &message, const std::filesystem::path &log_file)
 {
+	if (log_file.empty())
+		return;
+
 	static std::ofstream output_file{};
 	static std::mutex mtx;
 	std::unique_lock locker{ mtx };
@@ -719,6 +722,9 @@ void print_ip_to_file(const std::string &message, const std::filesystem::path &l
 
 void print_message_to_file(const std::string &message, const std::filesystem::path &log_file)
 {
+	if (log_file.empty())
+		return;
+
 	static std::ofstream output_file{};
 	static std::mutex mtx;
 	std::unique_lock locker{ mtx };
