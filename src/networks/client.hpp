@@ -39,6 +39,7 @@ class client_mode
 
 	asio::steady_timer timer_find_timeout;
 	asio::steady_timer timer_change_ports;
+	asio::steady_timer timer_keep_alive;
 	asio::strand<asio::io_context::executor_type> asio_strand;
 
 	void udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number);
@@ -51,9 +52,11 @@ class client_mode
 	void cleanup_expiring_data_connections();
 	void loop_timeout_sessions();
 	void loop_change_new_port();
+	void loop_keep_alive();
 	void wrapper_loop_updates(const asio::error_code &e);
 	void expiring_wrapper_loops(const asio::error_code &e);
 	void change_new_port(const asio::error_code &e);
+	void keep_alive(const asio::error_code &e);
 
 public:
 	client_mode() = delete;
@@ -65,6 +68,7 @@ public:
 		network_io(net_io),
 		timer_find_timeout(io_context),
 		timer_change_ports(io_context),
+		timer_keep_alive(io_context),
 		asio_strand(asio::make_strand(io_context.get_executor())),
 		current_settings(settings) {}
 
@@ -73,6 +77,7 @@ public:
 		network_io(existing_client.network_io),
 		timer_find_timeout(std::move(existing_client.timer_find_timeout)),
 		timer_change_ports(std::move(existing_client.timer_change_ports)),
+		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
 		asio_strand(std::move(existing_client.asio_strand)),
 		current_settings(std::move(existing_client.current_settings)) {}
 	

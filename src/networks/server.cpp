@@ -39,9 +39,6 @@ void server_mode::loop_timeout_sessions()
 		++next_iter;
 		uint32_t iden = iter->first;
 		std::shared_ptr<data_wrapper<udp_server>> wrapper_ptr = iter->second;
-		std::vector<uint8_t> keep_alive_packet = create_empty_data(current_settings.encryption_password, current_settings.encryption, EMPTY_PACKET_SIZE);
-		wrapper_ptr->send_data(std::move(keep_alive_packet), get_remote_address(wrapper_ptr));
-
 		std::scoped_lock locker_wrapper_session_map_to_tcp{ mutex_wrapper_session_map_to_target_udp };
 		std::shared_ptr<udp_client> local_session = wrapper_session_map_to_target_udp[wrapper_ptr];
 		if (local_session->time_gap_of_receive() > TIMEOUT && local_session->time_gap_of_send() > TIMEOUT)
@@ -53,6 +50,22 @@ void server_mode::loop_timeout_sessions()
 				expiring_wrapper.insert({ wrapper_ptr, right_now() - TIMEOUT });
 			locker_expiring_wrapper.unlock();
 		}
+	}
+}
+
+void server_mode::loop_keep_alive()
+{
+	const std::string &encryption_password = current_settings.encryption_password;
+	encryption_mode encryption = current_settings.encryption;
+
+	std::scoped_lock locker_wrapper_looping{ mutex_wrapper_channels };
+	for (auto iter = wrapper_channels.begin(), next_iter = iter; iter != wrapper_channels.end(); iter = next_iter)
+	{
+		++next_iter;
+		uint32_t iden = iter->first;
+		std::shared_ptr<data_wrapper<udp_server>> wrapper_ptr = iter->second;
+		std::vector<uint8_t> keep_alive_packet = create_empty_data(encryption_password, encryption, EMPTY_PACKET_SIZE);
+		wrapper_ptr->send_data(std::move(keep_alive_packet), get_remote_address(wrapper_ptr));
 	}
 }
 
@@ -82,6 +95,19 @@ void server_mode::expiring_wrapper_loops(const asio::error_code &e)
 	timer_find_timeout.async_wait([this](const asio::error_code &e) { expiring_wrapper_loops(e); });
 }
 
+void server_mode::keep_alive(const asio::error_code& e)
+{
+	if (e == asio::error::operation_aborted)
+	{
+		return;
+	}
+
+	loop_keep_alive();
+
+	timer_keep_alive.expires_after(seconds{ current_settings.keep_alive });
+	timer_keep_alive.async_wait([this](const asio::error_code &e) { keep_alive(e); });
+}
+
 void server_mode::send_stun_request(const asio::error_code &e)
 {
 	if (e == asio::error::operation_aborted)
@@ -101,6 +127,7 @@ server_mode::~server_mode()
 	timer_send_data.cancel();
 	timer_find_timeout.cancel();
 	timer_stun.cancel();
+	timer_keep_alive.cancel();
 }
 
 bool server_mode::start()
@@ -125,8 +152,9 @@ bool server_mode::start()
 		asio::ip::address local_address = asio::ip::make_address(current_settings.listen_on, ec);
 		if (ec)
 		{
-			std::cerr << "Listen Address incorrect - " << current_settings.listen_on << "\n";
-			print_message_to_file("Listen Address incorrect - " + current_settings.listen_on + "\n", current_settings.log_messages);
+			std::string error_message = time_to_string_with_square_brackets() + "Listen Address incorrect - " + current_settings.listen_on + "\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
 			return false;
 		}
 
@@ -146,9 +174,9 @@ bool server_mode::start()
 		}
 		catch (std::exception &ex)
 		{
-			std::string error_message = ex.what() + ("\tPort Number: " + std::to_string(port_number));
-			std::cerr << error_message << std::endl;
-			print_message_to_file(error_message + "\n", current_settings.log_messages);
+			std::string error_message = time_to_string_with_square_brackets() + ex.what() + ("\tPort Number: " + std::to_string(port_number)) + "\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
 			running_well = false;
 		}
 	}
@@ -170,10 +198,16 @@ bool server_mode::start()
 			timer_stun.expires_after(std::chrono::seconds(1));
 			timer_stun.async_wait([this](const asio::error_code &e) { send_stun_request(e); });
 		}
+
+		if (current_settings.keep_alive > 0)
+		{
+			timer_keep_alive.expires_after(seconds{ current_settings.keep_alive });
+			timer_keep_alive.async_wait([this](const asio::error_code& e) { keep_alive(e); });
+		}
 	}
 	catch (std::exception &ex)
 	{
-		std::string error_message = ex.what();
+		std::string error_message = time_to_string_with_square_brackets() + ex.what();
 		std::cerr << error_message << std::endl;
 		print_message_to_file(error_message + "\n", current_settings.log_messages);
 		running_well = false;
@@ -379,15 +413,16 @@ bool server_mode::update_local_udp_target(std::shared_ptr<udp_client> target_con
 		udp::resolver::results_type udp_endpoints = target_connector->get_remote_hostname(destination_address, destination_port, ec);
 		if (ec)
 		{
-			std::string error_message = ec.message();
+			std::string error_message = time_to_string_with_square_brackets() + ec.message();
 			std::cerr << error_message << "\n";
 			print_message_to_file(error_message + "\n", current_settings.log_messages);
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else if (udp_endpoints.size() == 0)
 		{
-			std::cerr << "destination address not found\n";
-			print_message_to_file("destination address not found\n", current_settings.log_messages);
+			std::string error_message = time_to_string_with_square_brackets() + "destination address not found\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else

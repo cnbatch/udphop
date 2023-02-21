@@ -36,6 +36,7 @@ class server_mode
 	asio::steady_timer timer_send_data;
 	asio::steady_timer timer_find_timeout;
 	asio::steady_timer timer_stun;
+	asio::steady_timer timer_keep_alive;
 	asio::strand<asio::io_context::executor_type> asio_strand;
 
 	std::unique_ptr<udp::endpoint> udp_target;
@@ -53,9 +54,11 @@ class server_mode
 
 	void cleanup_expiring_data_connections();
 	void loop_timeout_sessions();
+	void loop_keep_alive();
 	void send_stun_request(const asio::error_code &e);
 	void wrapper_loop_updates(const asio::error_code &e);
 	void expiring_wrapper_loops(const asio::error_code &e);
+	void keep_alive(const asio::error_code& e);
 
 public:
 	server_mode() = delete;
@@ -68,6 +71,7 @@ public:
 		timer_send_data(io_context),
 		timer_find_timeout(io_context),
 		timer_stun(io_context),
+		timer_keep_alive(io_context),
 		asio_strand(asio::make_strand(io_context.get_executor())),
 		external_ipv4_port(0),
 		external_ipv4_address(0),
@@ -82,6 +86,7 @@ public:
 		timer_send_data(std::move(existing_server.timer_send_data)),
 		timer_find_timeout(std::move(existing_server.timer_find_timeout)),
 		timer_stun(std::move(existing_server.timer_stun)),
+		timer_keep_alive(std::move(existing_server.timer_keep_alive)),
 		asio_strand(std::move(existing_server.asio_strand)),
 		external_ipv4_port(existing_server.external_ipv4_port.load()),
 		external_ipv4_address(existing_server.external_ipv4_address.load()),
