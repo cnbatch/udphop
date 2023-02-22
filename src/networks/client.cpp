@@ -298,6 +298,7 @@ void client_mode::cleanup_expiring_forwarders()
 			continue;
 		}
 
+		forwarder_ptr->disconnect();
 		expiring_forwarders.erase(iter);
 	}
 }
