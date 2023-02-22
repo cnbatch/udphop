@@ -65,6 +65,7 @@ void server_mode::loop_keep_alive()
 		uint32_t iden = iter->first;
 		std::shared_ptr<data_wrapper<udp_server>> wrapper_ptr = iter->second;
 		std::vector<uint8_t> keep_alive_packet = create_empty_data(encryption_password, encryption, EMPTY_PACKET_SIZE);
+		wrapper_ptr->write_iden(keep_alive_packet.data());
 		wrapper_ptr->send_data(std::move(keep_alive_packet), get_remote_address(wrapper_ptr));
 	}
 }
@@ -281,39 +282,38 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	if (received_size == 0)
 		return;
 
-	auto timestamp = right_now();
-	if (calculate_difference(timestamp, packet_timestamp) > TIME_GAP)
-		return;
-
+	if (packet_timestamp != 0)
 	{
-		std::shared_lock shared_locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
-		if (auto wrapper_iter = wrapper_session_map_to_source_udp.find(wrapper); wrapper_iter != wrapper_session_map_to_source_udp.end())
-		{
-			if (wrapper_iter->second != peer)
-			{
-				shared_locker_wrapper_session_map_to_source_udp.unlock();
-				std::unique_lock unique_locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
-				if (wrapper_iter->second != peer)
-					wrapper_iter->second = std::move(peer);
-			}
-		}
+		auto timestamp = right_now();
+		if (calculate_difference(timestamp, packet_timestamp) > TIME_GAP)
+			return;
+
+		wrapper->forwarder_ptr.store(udp_servers[port_number].get());
+
+		std::shared_ptr<udp_client> udp_channel;
+		std::shared_lock locker{ mutex_wrapper_session_map_to_target_udp };
+		if (auto channel_iter = wrapper_session_map_to_target_udp.find(wrapper); channel_iter != wrapper_session_map_to_target_udp.end())
+			udp_channel = channel_iter->second;
 		else
 			return;
+		locker.unlock();
+		if (udp_channel == nullptr)
+			return;
+
+		udp_channel->async_send_out(data, received_data, received_size, *udp_target);
 	}
 
-	wrapper->forwarder_ptr.store(udp_servers[port_number].get());
-
-	std::shared_ptr<udp_client> udp_channel;
-	std::shared_lock locker{ mutex_wrapper_session_map_to_target_udp };
-	if (auto channel_iter = wrapper_session_map_to_target_udp.find(wrapper); channel_iter != wrapper_session_map_to_target_udp.end())
-		udp_channel = channel_iter->second;
-	else
-		return;
-	locker.unlock();
-	if (udp_channel == nullptr)
-		return;
-
-	udp_channel->async_send_out(data, received_data, received_size, *udp_target);
+	std::shared_lock shared_locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
+	if (auto wrapper_iter = wrapper_session_map_to_source_udp.find(wrapper); wrapper_iter != wrapper_session_map_to_source_udp.end())
+	{
+		if (wrapper_iter->second != peer)
+		{
+			shared_locker_wrapper_session_map_to_source_udp.unlock();
+			std::unique_lock unique_locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
+			if (wrapper_iter->second != peer)
+				wrapper_iter->second = std::move(peer);
+		}
+	}
 }
 
 void server_mode::udp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number, std::shared_ptr<data_wrapper<udp_server>> wrapper_session)

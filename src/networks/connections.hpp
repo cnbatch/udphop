@@ -148,14 +148,19 @@ public:
 	static uint32_t extract_iden(const std::vector<uint8_t> &input_data)
 	{
 		const uint8_t *ptr = input_data.data();
-		uint32_t iden = reinterpret_cast<const decltype(iden)*>(ptr)[0];
-		return iden;
+		uint32_t ident = reinterpret_cast<const decltype(ident)*>(ptr)[0];
+		return ident;
 	}
 
 	static uint32_t extract_iden(const uint8_t *input_data)
 	{
-		uint32_t iden = reinterpret_cast<const decltype(iden)*>(input_data)[0];
-		return iden;
+		uint32_t ident = reinterpret_cast<const decltype(ident)*>(input_data)[0];
+		return ident;
+	}
+
+	void write_iden(uint8_t *input_data)
+	{
+		reinterpret_cast<decltype(iden)*>(input_data)[0] = iden;
 	}
 
 	uint32_t get_iden() { return iden; }

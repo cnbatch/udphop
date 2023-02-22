@@ -220,18 +220,21 @@ void client_mode::udp_client_incoming_to_udp(std::shared_ptr<data_wrapper<forwar
 	if (received_size == 0)
 		return;
 
-	auto timestamp = right_now();
-	if (calculate_difference(timestamp, packet_timestamp) > TIME_GAP)
-		return;
+	if (packet_timestamp != 0)
+	{
+		auto timestamp = right_now();
+		if (calculate_difference(timestamp, packet_timestamp) > TIME_GAP)
+			return;
 
-	std::shared_lock lock_wrapper_session_map_to_udp{ mutex_wrapper_session_map_to_udp };
-	auto session_iter = wrapper_session_map_to_udp.find(iden);
-	if (session_iter == wrapper_session_map_to_udp.end())
-		return;
-	udp::endpoint &udp_endpoint = session_iter->second;
-	lock_wrapper_session_map_to_udp.unlock();
+		std::shared_lock lock_wrapper_session_map_to_udp{ mutex_wrapper_session_map_to_udp };
+		auto session_iter = wrapper_session_map_to_udp.find(iden);
+		if (session_iter == wrapper_session_map_to_udp.end())
+			return;
+		udp::endpoint& udp_endpoint = session_iter->second;
+		lock_wrapper_session_map_to_udp.unlock();
 
-	udp_access_point->async_send_out(data, received_data_ptr, received_size, udp_endpoint);
+		udp_access_point->async_send_out(data, received_data_ptr, received_size, udp_endpoint);
+	}
 
 	std::shared_lock shared_lock_udp_target{ mutex_udp_target };
 	if (*udp_target != peer && *previous_udp_target != peer)
@@ -388,6 +391,7 @@ void client_mode::loop_change_new_port()
 		
 		std::shared_ptr<forwarder> new_forwarder = udp_forwarder;
 		std::vector<uint8_t> keep_alive_packet = create_empty_data(current_settings.encryption_password, current_settings.encryption, EMPTY_PACKET_SIZE);
+		wrapper_ptr->write_iden(keep_alive_packet.data());
 		new_forwarder->send_out(std::move(keep_alive_packet), local_empty_target, ec);
 		if (ec)
 		{
@@ -419,6 +423,7 @@ void client_mode::loop_keep_alive()
 		if (timestamp.load() > right_now())
 		{
 			std::vector<uint8_t> keep_alive_packet = create_empty_data(current_settings.encryption_password, current_settings.encryption, EMPTY_PACKET_SIZE);
+			wrapper_ptr->write_iden(keep_alive_packet.data());
 			wrapper_ptr->send_data(std::move(keep_alive_packet), get_remote_address());
 		}
 	}
