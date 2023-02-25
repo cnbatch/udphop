@@ -13,7 +13,7 @@ void server_mode::cleanup_expiring_data_connections()
 {
 	auto time_right_now = right_now();
 
-	std::scoped_lock locker_expiring_wrapper{ mutex_expiring_wrapper };
+	std::scoped_lock lockers{ mutex_expiring_wrapper, mutex_wrapper_channels };
 	for (auto iter = expiring_wrapper.begin(), next_iter = iter; iter != expiring_wrapper.end(); iter = next_iter)
 	{
 		++next_iter;
@@ -23,7 +23,7 @@ void server_mode::cleanup_expiring_data_connections()
 		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
 			continue;
 
-		std::scoped_lock lockers{ mutex_wrapper_channels, mutex_wrapper_session_map_to_source_udp };
+		std::unique_lock locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
 		wrapper_channels.erase(iden);
 		wrapper_session_map_to_source_udp.erase(wrapper_ptr);
 
@@ -33,22 +33,22 @@ void server_mode::cleanup_expiring_data_connections()
 
 void server_mode::loop_timeout_sessions()
 {
-	std::scoped_lock locker_wrapper_looping{ mutex_wrapper_channels };
+	std::scoped_lock locker_wrapper_looping{ mutex_expiring_wrapper, mutex_wrapper_channels };
 	for (auto iter = wrapper_channels.begin(), next_iter = iter; iter != wrapper_channels.end(); iter = next_iter)
 	{
 		++next_iter;
 		uint32_t iden = iter->first;
 		std::shared_ptr<data_wrapper<udp_server>> wrapper_ptr = iter->second;
-		std::scoped_lock locker_wrapper_session_map_to_tcp{ mutex_wrapper_session_map_to_target_udp };
+		std::unique_lock locker_wrapper_session_map_to_udp{ mutex_wrapper_session_map_to_target_udp };
 		std::shared_ptr<udp_client> local_session = wrapper_session_map_to_target_udp[wrapper_ptr];
 		if (local_session->time_gap_of_receive() > TIMEOUT && local_session->time_gap_of_send() > TIMEOUT)
 		{
 			wrapper_channels.erase(iter);
-
-			std::unique_lock locker_expiring_wrapper{ mutex_expiring_wrapper };
+			wrapper_session_map_to_target_udp.erase(wrapper_ptr);
+			//std::unique_lock locker_expiring_wrapper{ mutex_expiring_wrapper };
 			if (expiring_wrapper.find(wrapper_ptr) == expiring_wrapper.end())
 				expiring_wrapper.insert({ wrapper_ptr, right_now() - TIMEOUT });
-			locker_expiring_wrapper.unlock();
+			//locker_expiring_wrapper.unlock();
 		}
 	}
 }
@@ -242,7 +242,11 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 
 	auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
 	if (!error_message.empty() || plain_size == 0)
+	{
+		std::cerr << error_message << "\n";
+		print_message_to_file(error_message + "\n", current_settings.log_messages);
 		return;
+	}
 
 	uint32_t iden = data_wrapper<udp_server>::extract_iden(data_ptr);
 	if (iden == 0)
@@ -351,9 +355,9 @@ void server_mode::udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> 
 	if (create_new_udp_connection(data, received_data, received_size, wrapper, peer))
 	{
 		wrapper_channels.insert({ iden, wrapper });
-		mutex_wrapper_session_map_to_source_udp.lock();
+		locker_wrapper_session_map_to_source_udp.lock();
 		wrapper_session_map_to_source_udp[wrapper] = std::move(peer);
-		mutex_wrapper_session_map_to_source_udp.unlock();
+		locker_wrapper_session_map_to_source_udp.unlock();
 	}
 }
 

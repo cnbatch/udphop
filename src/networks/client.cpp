@@ -107,36 +107,31 @@ void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 
 				asio::error_code ec;
 				udp::endpoint endpoint_target;
-				if (std::shared_lock locker_udp_target{ mutex_udp_target }; udp_target == nullptr)
+				for (int i = 0; i <= RETRY_TIMES; ++i)
 				{
-					locker_udp_target.unlock();
-
-					for (int i = 0; i <= RETRY_TIMES; ++i)
+					udp::resolver::results_type udp_endpoints = udp_forwarder->get_remote_hostname(destination_address, destination_port, ec);
+					if (ec)
 					{
-						udp::resolver::results_type udp_endpoints = udp_forwarder->get_remote_hostname(destination_address, destination_port, ec);
-						if (ec)
-						{
-							std::string error_message = time_to_string_with_square_brackets() + ec.message();
-							std::cerr << error_message << "\n";
-							print_message_to_file(error_message + "\n", current_settings.log_messages);
-							std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
-						}
-						else if (udp_endpoints.size() == 0)
-						{
-							std::string error_message = time_to_string_with_square_brackets() + "destination address not found\n";
-							std::cerr << error_message;
-							if (!current_settings.log_messages.empty())
-								print_message_to_file(error_message, current_settings.log_messages);
-							std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
-						}
-						else
-						{
-							endpoint_target = *udp_endpoints.begin();
-							std::scoped_lock locker{ mutex_udp_target };
-							udp_target = std::make_unique<udp::endpoint>(endpoint_target);
-							previous_udp_target = std::make_unique<udp::endpoint>(endpoint_target);
-							break;
-						}
+						std::string error_message = time_to_string_with_square_brackets() + ec.message();
+						std::cerr << error_message << "\n";
+						print_message_to_file(error_message + "\n", current_settings.log_messages);
+						std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
+					}
+					else if (udp_endpoints.size() == 0)
+					{
+						std::string error_message = time_to_string_with_square_brackets() + "destination address not found\n";
+						std::cerr << error_message;
+						if (!current_settings.log_messages.empty())
+							print_message_to_file(error_message, current_settings.log_messages);
+						std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
+					}
+					else
+					{
+						endpoint_target = *udp_endpoints.begin();
+						std::scoped_lock locker{ mutex_udp_target };
+						udp_target = std::make_unique<udp::endpoint>(endpoint_target);
+						previous_udp_target = std::make_unique<udp::endpoint>(endpoint_target);
+						break;
 					}
 				}
 
@@ -151,7 +146,7 @@ void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 				udp_forwarder->send_out(packing_data_ptr, cipher_size, endpoint_target, ec);
 				if (ec)
 				{
-					std::string error_message = time_to_string_with_square_brackets() + "Cannot Send Data:\n" + ec.message();
+					std::string error_message = time_to_string_with_square_brackets() + "Cannot Send Data: " + ec.message();
 					std::cerr << error_message << "\n";
 					print_message_to_file(error_message + "\n", current_settings.log_messages);
 					return;
@@ -202,7 +197,11 @@ void client_mode::udp_client_incoming_to_udp(std::shared_ptr<data_wrapper<forwar
 	uint8_t *data_ptr = data.get();
 	auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
 	if (!error_message.empty() || plain_size == 0)
+	{
+		std::cerr << error_message << "\n";
+		print_message_to_file(error_message + "\n", current_settings.log_messages);
 		return;
+	}
 
 	uint32_t iden = data_wrapper<forwarder>::extract_iden(data_ptr);
 	if (wrapper->get_iden() != iden)
@@ -307,7 +306,8 @@ void client_mode::cleanup_expiring_data_connections()
 {
 	auto time_right_now = right_now();
 
-	std::scoped_lock locker{ mutex_expiring_wrapper };
+	std::scoped_lock lockers{ mutex_wrapper_channels, mutex_expiring_wrapper, mutex_wrapper_changeport_timestamp,
+		mutex_udp_session_map_to_wrapper, mutex_wrapper_session_map_to_udp };
 	for (auto iter = expiring_wrapper.begin(), next_iter = iter; iter != expiring_wrapper.end(); iter = next_iter)
 	{
 		++next_iter;
@@ -317,10 +317,10 @@ void client_mode::cleanup_expiring_data_connections()
 		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
 			continue;
 
-		std::scoped_lock lockers{ mutex_udp_session_map_to_wrapper, mutex_wrapper_session_map_to_udp,
-								  mutex_expiring_forwarders, mutex_wrapper_changeport_timestamp,
-								  mutex_wrapper_channels, mutex_id_map_to_forwarder };
-
+		//std::scoped_lock lockers{ mutex_udp_session_map_to_wrapper, mutex_wrapper_session_map_to_udp,
+		//						  mutex_expiring_forwarders, mutex_wrapper_changeport_timestamp,
+		//						  mutex_wrapper_channels, mutex_id_map_to_forwarder };
+		std::unique_lock locker_id_map_to_forwarder{ mutex_id_map_to_forwarder };
 		if (auto forwarder_iter = id_map_to_forwarder.find(iden);
 			forwarder_iter != id_map_to_forwarder.end())
 		{
@@ -328,10 +328,13 @@ void client_mode::cleanup_expiring_data_connections()
 			//forwarder *forwarder_ptr = forwarder_ptr_owner.get();
 			forwarder_ptr->remove_callback();
 			forwarder_ptr->stop();
+			std::unique_lock locker_expiring_forwarders{ mutex_expiring_forwarders };
 			if (expiring_forwarders.find(forwarder_ptr) == expiring_forwarders.end())
 				expiring_forwarders.insert({ forwarder_ptr, right_now() });
+			locker_expiring_forwarders.unlock();
 			id_map_to_forwarder.erase(forwarder_iter);
 		}
+		locker_id_map_to_forwarder.unlock();
 
 		udp::endpoint &udp_endpoint = wrapper_session_map_to_udp[iden];
 		udp_session_map_to_wrapper.erase(udp_endpoint);
@@ -343,25 +346,28 @@ void client_mode::cleanup_expiring_data_connections()
 
 void client_mode::loop_timeout_sessions()
 {
-	std::scoped_lock lockers{ mutex_wrapper_channels };
+	std::scoped_lock lockers{ mutex_wrapper_channels, mutex_expiring_wrapper, mutex_wrapper_changeport_timestamp };
 	for (auto iter = wrapper_channels.begin(), next_iter = iter; iter != wrapper_channels.end(); iter = next_iter)
 	{
 		++next_iter;
 		uint32_t iden = iter->first;
 		std::shared_ptr<data_wrapper<forwarder>> data_ptr = iter->second;
 
-		std::unique_lock locker_id_map_to_forwarder{ mutex_id_map_to_forwarder };
-		forwarder *udp_forwarder = id_map_to_forwarder.find(iden)->second.get();
+		std::shared_lock locker_id_map_to_forwarder{ mutex_id_map_to_forwarder };
+		auto fordwarder_iter = id_map_to_forwarder.find(iden);
+		if (fordwarder_iter == id_map_to_forwarder.end())
+			continue;
+		std::shared_ptr<forwarder> udp_forwarder = fordwarder_iter->second;
 		locker_id_map_to_forwarder.unlock();
 
 		if (udp_forwarder->time_gap_of_receive() > TIMEOUT && udp_forwarder->time_gap_of_send() > TIMEOUT)
 		{
-			std::scoped_lock locker_expiring_wrapper{ mutex_expiring_wrapper };
+			//std::scoped_lock locker_expiring_wrapper{ mutex_expiring_wrapper };
 			if (expiring_wrapper.find(iden) == expiring_wrapper.end())
 				expiring_wrapper.insert({ iden, std::pair{ data_ptr, right_now() } });
 
 			wrapper_channels.erase(iter);
-			std::scoped_lock locker_wrapper_changeport_timestamp{ mutex_wrapper_changeport_timestamp };
+			//std::scoped_lock locker_wrapper_changeport_timestamp{ mutex_wrapper_changeport_timestamp };
 			wrapper_changeport_timestamp.erase(data_ptr);
 		}
 	}
