@@ -38,6 +38,7 @@ class client_mode
 	std::map<std::shared_ptr<data_wrapper<forwarder>>, std::atomic<int64_t>, std::owner_less<>> wrapper_changeport_timestamp;
 
 	asio::steady_timer timer_find_timeout;
+	asio::steady_timer timer_expiring_wrapper;
 	asio::steady_timer timer_change_ports;
 	asio::steady_timer timer_keep_alive;
 	asio::strand<asio::io_context::executor_type> asio_strand;
@@ -53,7 +54,7 @@ class client_mode
 	void loop_timeout_sessions();
 	void loop_change_new_port();
 	void loop_keep_alive();
-	void wrapper_loop_updates(const asio::error_code &e);
+	void find_expires(const asio::error_code &e);
 	void expiring_wrapper_loops(const asio::error_code &e);
 	void change_new_port(const asio::error_code &e);
 	void keep_alive(const asio::error_code &e);
@@ -67,6 +68,7 @@ public:
 		io_context(io_context_ref),
 		network_io(net_io),
 		timer_find_timeout(io_context),
+		timer_expiring_wrapper(io_context),
 		timer_change_ports(io_context),
 		timer_keep_alive(io_context),
 		asio_strand(asio::make_strand(io_context.get_executor())),
@@ -76,6 +78,7 @@ public:
 		io_context(existing_client.io_context),
 		network_io(existing_client.network_io),
 		timer_find_timeout(std::move(existing_client.timer_find_timeout)),
+		timer_expiring_wrapper(std::move(existing_client.timer_expiring_wrapper)),
 		timer_change_ports(std::move(existing_client.timer_change_ports)),
 		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
 		asio_strand(std::move(existing_client.asio_strand)),

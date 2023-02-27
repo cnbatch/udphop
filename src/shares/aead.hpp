@@ -101,7 +101,7 @@ public:
 			error_message = e.what();
 			decoder->clear();
 			decoder->set_key(key.data(), key.size());
-			decoder->set_associated_data((const uint8_t*)associated_data.c_str(), associated_data.size());
+			decoder->set_associated_data((const uint8_t *)associated_data.c_str(), associated_data.size());
 		}
 
 		return T();

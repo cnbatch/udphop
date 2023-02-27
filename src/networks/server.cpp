@@ -3,6 +3,7 @@
 #include <random>
 #include <thread>
 #include "server.hpp"
+#include "../shares/data_operations.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono;
@@ -41,13 +42,14 @@ void server_mode::loop_timeout_sessions()
 		std::shared_ptr<data_wrapper<udp_server>> wrapper_ptr = iter->second;
 		std::unique_lock locker_wrapper_session_map_to_udp{ mutex_wrapper_session_map_to_target_udp };
 		std::shared_ptr<udp_client> local_session = wrapper_session_map_to_target_udp[wrapper_ptr];
-		if (local_session->time_gap_of_receive() > TIMEOUT && local_session->time_gap_of_send() > TIMEOUT)
+		if (local_session->time_gap_of_receive() > current_settings.timeout &&
+			local_session->time_gap_of_send() > current_settings.timeout)
 		{
 			wrapper_channels.erase(iter);
 			wrapper_session_map_to_target_udp.erase(wrapper_ptr);
 			//std::unique_lock locker_expiring_wrapper{ mutex_expiring_wrapper };
 			if (expiring_wrapper.find(wrapper_ptr) == expiring_wrapper.end())
-				expiring_wrapper.insert({ wrapper_ptr, right_now() - TIMEOUT });
+				expiring_wrapper.insert({ wrapper_ptr, right_now() - current_settings.timeout });
 			//locker_expiring_wrapper.unlock();
 		}
 	}
@@ -70,7 +72,7 @@ void server_mode::loop_keep_alive()
 	}
 }
 
-void server_mode::wrapper_loop_updates(const asio::error_code &e)
+void server_mode::find_expires(const asio::error_code &e)
 {
 	if (e == asio::error::operation_aborted)
 	{
@@ -79,8 +81,8 @@ void server_mode::wrapper_loop_updates(const asio::error_code &e)
 
 	loop_timeout_sessions();
 
-	timer_send_data.expires_after(FINDER_TIMEOUT_INTERVAL);
-	timer_send_data.async_wait([this](const asio::error_code &e) { wrapper_loop_updates(e); });
+	timer_find_timeout.expires_after(FINDER_TIMEOUT_INTERVAL);
+	timer_find_timeout.async_wait([this](const asio::error_code &e) { find_expires(e); });
 }
 
 void server_mode::expiring_wrapper_loops(const asio::error_code &e)
@@ -92,8 +94,8 @@ void server_mode::expiring_wrapper_loops(const asio::error_code &e)
 
 	cleanup_expiring_data_connections();
 
-	timer_find_timeout.expires_after(EXPRING_UPDATE_INTERVAL);
-	timer_find_timeout.async_wait([this](const asio::error_code &e) { expiring_wrapper_loops(e); });
+	timer_expiring_wrapper.expires_after(EXPRING_UPDATE_INTERVAL);
+	timer_expiring_wrapper.async_wait([this](const asio::error_code &e) { expiring_wrapper_loops(e); });
 }
 
 void server_mode::keep_alive(const asio::error_code& e)
@@ -125,7 +127,7 @@ void server_mode::send_stun_request(const asio::error_code &e)
 
 server_mode::~server_mode()
 {
-	timer_send_data.cancel();
+	timer_expiring_wrapper.cancel();
 	timer_find_timeout.cancel();
 	timer_stun.cancel();
 	timer_keep_alive.cancel();
@@ -187,11 +189,11 @@ bool server_mode::start()
 	
 	try
 	{
-		timer_send_data.expires_after(FINDER_TIMEOUT_INTERVAL);
-		timer_send_data.async_wait([this](const asio::error_code &e) { wrapper_loop_updates(e); });
+		timer_expiring_wrapper.expires_after(EXPRING_UPDATE_INTERVAL);
+		timer_expiring_wrapper.async_wait([this](const asio::error_code &e) { expiring_wrapper_loops(e); });
 
-		timer_find_timeout.expires_after(EXPRING_UPDATE_INTERVAL);
-		timer_find_timeout.async_wait([this](const asio::error_code &e) { expiring_wrapper_loops(e); });
+		timer_find_timeout.expires_after(FINDER_TIMEOUT_INTERVAL);
+		timer_find_timeout.async_wait([this](const asio::error_code &e) { find_expires(e); });
 
 		if (!current_settings.stun_server.empty())
 		{

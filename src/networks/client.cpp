@@ -3,6 +3,7 @@
 #include <random>
 #include <thread>
 #include "client.hpp"
+#include "../shares/data_operations.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono;
@@ -49,8 +50,11 @@ bool client_mode::start()
 		udp_callback_t udp_func_ap = std::bind(&client_mode::udp_server_incoming, this, _1, _2, _3, _4);
 		udp_access_point = std::make_unique<udp_server>(network_io, asio_strand, listen_on_ep, udp_func_ap);
 
-		timer_find_timeout.expires_after(EXPRING_UPDATE_INTERVAL);
-		timer_find_timeout.async_wait([this](const asio::error_code &e) { wrapper_loop_updates(e); });
+		timer_find_timeout.expires_after(FINDER_TIMEOUT_INTERVAL);
+		timer_find_timeout.async_wait([this](const asio::error_code &e) { find_expires(e); });
+
+		timer_expiring_wrapper.expires_after(EXPRING_UPDATE_INTERVAL);
+		timer_expiring_wrapper.async_wait([this](const asio::error_code &e) { expiring_wrapper_loops(e); });
 
 		timer_change_ports.expires_after(CHANGEPORT_UPDATE_INTERVAL);
 		timer_change_ports.async_wait([this](const asio::error_code &e) { change_new_port(e); });
@@ -360,7 +364,8 @@ void client_mode::loop_timeout_sessions()
 		std::shared_ptr<forwarder> udp_forwarder = fordwarder_iter->second;
 		locker_id_map_to_forwarder.unlock();
 
-		if (udp_forwarder->time_gap_of_receive() > TIMEOUT && udp_forwarder->time_gap_of_send() > TIMEOUT)
+		if (udp_forwarder->time_gap_of_receive() > current_settings.timeout &&
+			udp_forwarder->time_gap_of_send() > current_settings.timeout)
 		{
 			//std::scoped_lock locker_expiring_wrapper{ mutex_expiring_wrapper };
 			if (expiring_wrapper.find(iden) == expiring_wrapper.end())
@@ -378,6 +383,8 @@ void client_mode::loop_change_new_port()
 	std::shared_lock locker{ mutex_wrapper_changeport_timestamp };
 	for (auto &[wrapper_ptr, timestamp] : wrapper_changeport_timestamp)
 	{
+		if (timestamp.load() > right_now())
+			continue;
 		timestamp += current_settings.dynamic_port_refresh;
 
 		uint32_t iden = wrapper_ptr->get_iden();
@@ -436,7 +443,7 @@ void client_mode::loop_keep_alive()
 	}
 }
 
-void client_mode::wrapper_loop_updates(const asio::error_code &e)
+void client_mode::find_expires(const asio::error_code &e)
 {
 	if (e == asio::error::operation_aborted)
 		return;
@@ -444,7 +451,7 @@ void client_mode::wrapper_loop_updates(const asio::error_code &e)
 	loop_timeout_sessions();
 
 	timer_find_timeout.expires_after(FINDER_TIMEOUT_INTERVAL);
-	timer_find_timeout.async_wait([this](const asio::error_code &e) { wrapper_loop_updates(e); });
+	timer_find_timeout.async_wait([this](const asio::error_code &e) { find_expires(e); });
 }
 
 void client_mode::expiring_wrapper_loops(const asio::error_code & e)
@@ -455,8 +462,8 @@ void client_mode::expiring_wrapper_loops(const asio::error_code & e)
 	cleanup_expiring_forwarders();
 	cleanup_expiring_data_connections();
 
-	timer_find_timeout.expires_after(EXPRING_UPDATE_INTERVAL);
-	timer_find_timeout.async_wait([this](const asio::error_code &e) { expiring_wrapper_loops(e); });
+	timer_expiring_wrapper.expires_after(EXPRING_UPDATE_INTERVAL);
+	timer_expiring_wrapper.async_wait([this](const asio::error_code &e) { expiring_wrapper_loops(e); });
 }
 
 void client_mode::change_new_port(const asio::error_code & e)

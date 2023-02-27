@@ -33,7 +33,7 @@ class server_mode
 	std::mutex mutex_expiring_wrapper;
 	std::map<std::shared_ptr<data_wrapper<udp_server>>, int64_t, std::owner_less<>> expiring_wrapper;
 
-	asio::steady_timer timer_send_data;
+	asio::steady_timer timer_expiring_wrapper;
 	asio::steady_timer timer_find_timeout;
 	asio::steady_timer timer_stun;
 	asio::steady_timer timer_keep_alive;
@@ -56,7 +56,7 @@ class server_mode
 	void loop_timeout_sessions();
 	void loop_keep_alive();
 	void send_stun_request(const asio::error_code &e);
-	void wrapper_loop_updates(const asio::error_code &e);
+	void find_expires(const asio::error_code &e);
 	void expiring_wrapper_loops(const asio::error_code &e);
 	void keep_alive(const asio::error_code& e);
 
@@ -68,7 +68,7 @@ public:
 	server_mode(asio::io_context &io_context_ref, asio::io_context &net_io, const user_settings &settings)
 		: io_context(io_context_ref),
 		network_io(net_io),
-		timer_send_data(io_context),
+		timer_expiring_wrapper(io_context),
 		timer_find_timeout(io_context),
 		timer_stun(io_context),
 		timer_keep_alive(io_context),
@@ -83,7 +83,7 @@ public:
 	server_mode(server_mode &&existing_server) noexcept
 		: io_context(existing_server.io_context),
 		network_io(existing_server.network_io),
-		timer_send_data(std::move(existing_server.timer_send_data)),
+		timer_expiring_wrapper(std::move(existing_server.timer_expiring_wrapper)),
 		timer_find_timeout(std::move(existing_server.timer_find_timeout)),
 		timer_stun(std::move(existing_server.timer_stun)),
 		timer_keep_alive(std::move(existing_server.timer_keep_alive)),

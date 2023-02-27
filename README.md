@@ -90,6 +90,7 @@ encryption_algorithm=AES-GCM
 | dport_refresh        | 20 - 65535         |否    |单位“秒”。预设值 60 秒，小于20秒按20秒算，大于65535时按65536秒算|
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20 |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305 |
 | encryption_password  | 任意字符            |视情况|设置了 encryption_algorithm 时必填|
+| timeout              | 0 - 65535          |否    |单位“秒”。预设值为 1800，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ udphop 之间的超时设置 |
 | keep_alive           | 0 - 65535          |否    |预设值为 0，等于停用 Keep Alive |
 | stun_server          | STUN 服务器地址     |否    |listen_port 为端口范围模式时不可使用|
 | log_path             | 存放 Log 的目录     |否    |不能指向文件本身|
