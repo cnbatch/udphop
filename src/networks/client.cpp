@@ -76,7 +76,7 @@ bool client_mode::start()
 	return true;
 }
 
-void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number)
+void client_mode::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
 	if (data_size == 0)
 		return;
@@ -103,9 +103,9 @@ void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 
 				uint32_t key_number = generate_token_number();
 
-				std::shared_ptr<data_wrapper<forwarder>> data_ptr = std::make_shared<data_wrapper<forwarder>>(key_number);
+				std::shared_ptr<data_wrapper<forwarder>> data_wrapper_ptr = std::make_shared<data_wrapper<forwarder>>(key_number);
 				auto udp_func = std::bind(&client_mode::udp_client_incoming_to_udp, this, _1, _2, _3, _4, _5);
-				std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(network_io, asio_strand, data_ptr, udp_func);
+				std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(network_io, asio_strand, data_wrapper_ptr, udp_func);
 				if (udp_forwarder == nullptr)
 					return;
 
@@ -143,7 +143,7 @@ void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 					return;
 
 				uint8_t* packing_data_ptr = data.get();
-				size_t packed_data_size = data_ptr->pack_data(packing_data_ptr, data_size);
+				size_t packed_data_size = data_wrapper_ptr->pack_data(packing_data_ptr, data_size);
 				auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, packing_data_ptr, (int)packed_data_size);
 				if (!error_message.empty() || cipher_size == 0)
 					return;
@@ -157,16 +157,16 @@ void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 				}
 				udp_forwarder->async_receive();
 
-				data_ptr->forwarder_ptr.store(udp_forwarder.get());
+				data_wrapper_ptr->forwarder_ptr.store(udp_forwarder.get());
 
 				std::unique_lock lock_wrapper_changeport_timestamp{ mutex_wrapper_changeport_timestamp };
-				wrapper_changeport_timestamp[data_ptr].store(right_now() + current_settings.dynamic_port_refresh);
+				wrapper_changeport_timestamp[data_wrapper_ptr].store(right_now() + current_settings.dynamic_port_refresh);
 				lock_wrapper_changeport_timestamp.unlock();
 
-				udp_session_map_to_wrapper.insert({ peer, data_ptr });
+				udp_session_map_to_wrapper.insert({ peer, data_wrapper_ptr });
 				wrapper_session_map_to_udp[key_number] = peer;
 				id_map_to_forwarder.insert({ key_number, udp_forwarder });
-				wrapper_channels.insert({ key_number, data_ptr });
+				wrapper_channels.insert({ key_number, data_wrapper_ptr });
 
 				return;
 			}
@@ -186,12 +186,13 @@ void client_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 
 	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, packing_data_ptr, (int)packed_data_size);
 	if (error_message.empty() && cipher_size > 0)
-		wrapper_session->send_data(data, packing_data_ptr, cipher_size, get_remote_address());
+		wrapper_session->send_data(std::move(data), packing_data_ptr, cipher_size, get_remote_address());
 }
 
 
-void client_mode::udp_client_incoming_to_udp(std::shared_ptr<data_wrapper<forwarder>> wrapper, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number)
+void client_mode::udp_client_incoming_to_udp(std::weak_ptr<data_wrapper<forwarder>> wrapper_weak_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
 {
+	std::shared_ptr<data_wrapper<forwarder>> wrapper = wrapper_weak_ptr.lock();
 	if (data_size == 0 || wrapper == nullptr)
 		return;
 
@@ -236,7 +237,7 @@ void client_mode::udp_client_incoming_to_udp(std::shared_ptr<data_wrapper<forwar
 		udp::endpoint& udp_endpoint = session_iter->second;
 		lock_wrapper_session_map_to_udp.unlock();
 
-		udp_access_point->async_send_out(data, received_data_ptr, received_size, udp_endpoint);
+		udp_access_point->async_send_out(std::move(data), received_data_ptr, received_size, udp_endpoint);
 	}
 
 	std::shared_lock shared_lock_udp_target{ mutex_udp_target };

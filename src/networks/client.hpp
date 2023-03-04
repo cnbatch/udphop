@@ -43,8 +43,8 @@ class client_mode
 	asio::steady_timer timer_keep_alive;
 	asio::strand<asio::io_context::executor_type> asio_strand;
 
-	void udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number);
-	void udp_client_incoming_to_udp(std::shared_ptr<data_wrapper<forwarder>>, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
+	void udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
+	void udp_client_incoming_to_udp(std::weak_ptr<data_wrapper<forwarder>>, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	udp::endpoint get_remote_address();
 
 	uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num);

@@ -45,6 +45,7 @@ void server_mode::loop_timeout_sessions()
 		if (local_session->time_gap_of_receive() > current_settings.timeout &&
 			local_session->time_gap_of_send() > current_settings.timeout)
 		{
+			local_session->stop();
 			wrapper_channels.erase(iter);
 			wrapper_session_map_to_target_udp.erase(wrapper_ptr);
 			//std::unique_lock locker_expiring_wrapper{ mutex_expiring_wrapper };
@@ -219,7 +220,7 @@ bool server_mode::start()
 	return running_well;
 }
 
-void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number)
+void server_mode::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
 	if (data_size == 0)
 		return;
@@ -270,7 +271,7 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 			wrapper_channel_iter = wrapper_channels.find(iden);
 			if (wrapper_channel_iter == wrapper_channels.end())
 			{
-				udp_server_incoming_new_connection(data, plain_size, std::move(peer), port_number);
+				udp_server_incoming_new_connection(std::move(data), plain_size, peer, port_number);
 				return;
 			}
 			else
@@ -306,7 +307,7 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 		if (udp_channel == nullptr)
 			return;
 
-		udp_channel->async_send_out(data, received_data, received_size, *udp_target);
+		udp_channel->async_send_out(std::move(data), received_data, received_size, *udp_target);
 	}
 
 	std::shared_lock shared_locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
@@ -317,21 +318,21 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 			shared_locker_wrapper_session_map_to_source_udp.unlock();
 			std::unique_lock unique_locker_wrapper_session_map_to_source_udp{ mutex_wrapper_session_map_to_source_udp };
 			if (wrapper_iter->second != peer)
-				wrapper_iter->second = std::move(peer);
+				wrapper_iter->second = peer;
 		}
 	}
 }
 
-void server_mode::udp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number, std::shared_ptr<data_wrapper<udp_server>> wrapper_session)
+void server_mode::udp_client_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, std::shared_ptr<data_wrapper<udp_server>> wrapper_session)
 {
 	uint8_t *packing_data_ptr = data.get();
 	auto packed_data_size = wrapper_session->pack_data(packing_data_ptr, data_size);
 	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, packing_data_ptr, (int)packed_data_size);
 	if (error_message.empty() && cipher_size > 0)
-		wrapper_session->send_data(data, packing_data_ptr, cipher_size, get_remote_address(wrapper_session));
+		wrapper_session->send_data(std::move(data), packing_data_ptr, cipher_size, get_remote_address(wrapper_session));
 }
 
-void server_mode::udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number)
+void server_mode::udp_server_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
 	if (data_size == 0)
 		return;
@@ -354,22 +355,22 @@ void server_mode::udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> 
 	locker_wrapper_session_map_to_source_udp.unlock();
 	wrapper->forwarder_ptr.store(udp_servers[port_number].get());
 
-	if (create_new_udp_connection(data, received_data, received_size, wrapper, peer))
+	if (create_new_udp_connection(std::move(data), received_data, received_size, wrapper, peer))
 	{
 		wrapper_channels.insert({ iden, wrapper });
 		locker_wrapper_session_map_to_source_udp.lock();
-		wrapper_session_map_to_source_udp[wrapper] = std::move(peer);
+		wrapper_session_map_to_source_udp[wrapper] = peer;
 		locker_wrapper_session_map_to_source_udp.unlock();
 	}
 }
 
-bool server_mode::create_new_udp_connection(std::shared_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, std::shared_ptr<data_wrapper<udp_server>> wrapper, const udp::endpoint &peer)
+bool server_mode::create_new_udp_connection(std::unique_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, std::shared_ptr<data_wrapper<udp_server>> wrapper, udp::endpoint peer)
 {
 	bool connect_success = false;
 
-	udp_callback_t udp_func_ap = [wrapper, this](std::shared_ptr<uint8_t[]> input_data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number)
+	udp_callback_t udp_func_ap = [wrapper, this](std::unique_ptr<uint8_t[]> input_data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 	{
-		udp_client_incoming(input_data, data_size, std::move(peer), port_number, wrapper);
+		udp_client_incoming(std::move(input_data), data_size, peer, port_number, wrapper);
 	};
 	std::shared_ptr<udp_client> target_connector = std::make_shared<udp_client>(network_io, asio_strand, udp_func_ap);
 
@@ -381,7 +382,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<uint8_t[]> data, con
 	if (udp_target != nullptr || update_local_udp_target(target_connector))
 	{
 		target_connector->async_receive();
-		target_connector->async_send_out(data, data_ptr, data_size, *udp_target);
+		target_connector->async_send_out(std::move(data), data_ptr, data_size, *udp_target);
 		std::unique_lock locker{ mutex_wrapper_session_map_to_target_udp };
 		wrapper_session_map_to_target_udp.insert({ wrapper, target_connector });
 		locker.unlock();

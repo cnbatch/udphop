@@ -41,12 +41,12 @@ class server_mode
 
 	std::unique_ptr<udp::endpoint> udp_target;
 
-	void udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number);
-	void udp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number, std::shared_ptr<data_wrapper<udp_server>> wrapper_session);
+	void udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
+	void udp_client_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, std::shared_ptr<data_wrapper<udp_server>> wrapper_session);
 
-	void udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number);
+	void udp_server_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
 
-	bool create_new_udp_connection(std::shared_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, std::shared_ptr<data_wrapper<udp_server>> wrapper, const udp::endpoint &peer);
+	bool create_new_udp_connection(std::unique_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, std::shared_ptr<data_wrapper<udp_server>> wrapper, udp::endpoint peer);
 
 	udp::endpoint get_remote_address(std::shared_ptr<data_wrapper<udp_server>> wrapper_ptr);
 	bool update_local_udp_target(std::shared_ptr<udp_client> target_connector);
