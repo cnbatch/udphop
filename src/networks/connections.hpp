@@ -51,8 +51,8 @@ class udp_server
 {
 public:
 	udp_server() = delete;
-	udp_server(asio::io_context &net_io, asio::strand<asio::io_context::executor_type> &asio_strand, const udp::endpoint &ep, udp_callback_t callback_func)
-		: port_number(ep.port()), task_assigner(asio_strand), resolver(net_io), connection_socket(net_io), callback(callback_func)
+	udp_server(asio::io_context &net_io, /*asio::strand<asio::io_context::executor_type> &asio_strand,*/ const udp::endpoint &ep, udp_callback_t callback_func)
+		: port_number(ep.port()), /*task_assigner(asio_strand),*/ resolver(net_io), connection_socket(net_io), callback(callback_func)
 	{
 		initialise(ep);
 		start_receive();
@@ -72,7 +72,7 @@ private:
 	asio::ip::port_type get_port_number();
 
 	asio::ip::port_type port_number;
-	asio::strand<asio::io_context::executor_type> &task_assigner;
+	//asio::strand<asio::io_context::executor_type> &task_assigner;
 	udp::resolver resolver;
 	udp::socket connection_socket;
 	udp::endpoint incoming_endpoint;
@@ -83,8 +83,8 @@ class udp_client
 {
 public:
 	udp_client() = delete;
-	udp_client(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand, udp_callback_t callback_func)
-		: task_assigner(asio_strand), connection_socket(io_context), resolver(io_context), callback(callback_func),
+	udp_client(asio::io_context &io_context, /*asio::strand<asio::io_context::executor_type> &asio_strand,*/ udp_callback_t callback_func)
+		: /*task_assigner(asio_strand),*/ connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(right_now()), last_send_time(right_now()),
 		paused(false), stopped(false)
 	{
@@ -121,7 +121,7 @@ protected:
 
 	void handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred);
 
-	asio::strand<asio::io_context::executor_type> &task_assigner;
+	//asio::strand<asio::io_context::executor_type> &task_assigner;
 	udp::socket connection_socket;
 	udp::resolver resolver;
 	udp::endpoint incoming_endpoint;
@@ -132,14 +132,17 @@ protected:
 	std::atomic<bool> stopped;
 };
 
-template<typename T>
+template<typename F, typename C>
 class data_wrapper
 {
 private:
 	uint32_t iden;
 
 public:
-	std::atomic<T *> forwarder_ptr;
+	std::atomic<F *> forwarder_ptr;
+	// forwarder: local endpoint;
+	// udp_server: weak_ptr of local udp_channel (udp_client)
+	C cached_data;
 
 	data_wrapper() = delete;
 	data_wrapper(uint32_t id) : iden(id) {}
@@ -257,11 +260,11 @@ public:
 class forwarder : public udp_client
 {
 public:
-	using process_data_t = std::function<void(std::weak_ptr<data_wrapper<forwarder>>, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
+	using process_data_t = std::function<void(std::weak_ptr<data_wrapper<forwarder, udp::endpoint>>, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
 	forwarder() = delete;
-	forwarder(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand, std::weak_ptr<data_wrapper<forwarder>> input_wrapper, process_data_t callback_func) :
-		udp_client(io_context, asio_strand, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)),
-		wrapper(input_wrapper), callback(callback_func), task_assigner(asio_strand) {}
+	forwarder(asio::io_context &io_context,/* const udp::endpoint &back_to_local_address,*/ std::weak_ptr<data_wrapper<forwarder, udp::endpoint>> input_wrapper, process_data_t callback_func) :
+		udp_client(io_context, /*asio_strand,*/ std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)),
+		wrapper(input_wrapper), callback(callback_func)/*, cached_local_address(back_to_local_address)*/ {}
 
 	void replace_callback(process_data_t callback_func)
 	{
@@ -270,7 +273,7 @@ public:
 
 	void remove_callback()
 	{
-		callback = [](std::weak_ptr<data_wrapper<forwarder>> wrapper, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint ep, asio::ip::port_type num) {};
+		callback = [](std::weak_ptr<data_wrapper<forwarder, udp::endpoint>> wrapper, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint ep, asio::ip::port_type num) {};
 	}
 
 private:
@@ -281,13 +284,14 @@ private:
 
 		if (wrapper.expired())
 			return;
-		asio::post(task_assigner, [this, data_ = std::move(data), data_size, peer, local_port_number]() mutable
-			{ callback(wrapper, std::move(data_), data_size, peer, local_port_number); });
+		//asio::post(task_assigner, [this, data_ = std::move(data), data_size, peer, local_port_number]() mutable
+		//	{ callback(wrapper, std::move(data_), data_size, peer, local_port_number); });
+		callback(wrapper, std::move(data), data_size, peer, local_port_number);
 	}
 
-	std::weak_ptr<data_wrapper<forwarder>> wrapper;
+	std::weak_ptr<data_wrapper<forwarder, udp::endpoint>> wrapper;
 	process_data_t callback;
-	asio::strand<asio::io_context::executor_type> &task_assigner;
+	//asio::strand<asio::io_context::executor_type> &task_assigner;
 };
 
 std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host);

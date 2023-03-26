@@ -17,16 +17,16 @@ class client_mode
 
 
 	std::shared_mutex mutex_udp_session_map_to_wrapper;
-	std::map<udp::endpoint, std::shared_ptr<data_wrapper<forwarder>>> udp_session_map_to_wrapper;
+	std::map<udp::endpoint, std::shared_ptr<data_wrapper<forwarder, udp::endpoint>>> udp_session_map_to_wrapper;
 	std::shared_mutex mutex_wrapper_session_map_to_udp;
 	std::map<uint32_t, udp::endpoint> wrapper_session_map_to_udp;
 
 
 	std::mutex mutex_wrapper_channels;
-	std::map<uint32_t, std::shared_ptr<data_wrapper<forwarder>>> wrapper_channels;
+	std::map<uint32_t, std::shared_ptr<data_wrapper<forwarder, udp::endpoint>>> wrapper_channels;
 
 	std::mutex mutex_expiring_wrapper;
-	std::map<uint32_t, std::pair<std::shared_ptr<data_wrapper<forwarder>>, int64_t>> expiring_wrapper;
+	std::map<uint32_t, std::pair<std::shared_ptr<data_wrapper<forwarder, udp::endpoint>>, int64_t>> expiring_wrapper;
 	std::mutex mutex_expiring_forwarders;
 	std::map<std::shared_ptr<forwarder>, int64_t, std::owner_less<>> expiring_forwarders;
 
@@ -35,16 +35,16 @@ class client_mode
 	std::shared_ptr<udp::endpoint> previous_udp_target;
 
 	std::shared_mutex mutex_wrapper_changeport_timestamp;
-	std::map<std::shared_ptr<data_wrapper<forwarder>>, std::atomic<int64_t>, std::owner_less<>> wrapper_changeport_timestamp;
+	std::map<std::shared_ptr<data_wrapper<forwarder, udp::endpoint>>, std::atomic<int64_t>, std::owner_less<>> wrapper_changeport_timestamp;
 
 	asio::steady_timer timer_find_timeout;
 	asio::steady_timer timer_expiring_wrapper;
 	asio::steady_timer timer_change_ports;
 	asio::steady_timer timer_keep_alive;
-	asio::strand<asio::io_context::executor_type> asio_strand;
+	//asio::strand<asio::io_context::executor_type> asio_strand;
 
 	void udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
-	void udp_client_incoming_to_udp(std::weak_ptr<data_wrapper<forwarder>>, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
+	void udp_client_incoming_to_udp(std::weak_ptr<data_wrapper<forwarder, udp::endpoint>>, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	udp::endpoint get_remote_address();
 
 	uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num);
@@ -71,7 +71,7 @@ public:
 		timer_expiring_wrapper(io_context),
 		timer_change_ports(io_context),
 		timer_keep_alive(io_context),
-		asio_strand(asio::make_strand(io_context.get_executor())),
+		//asio_strand(asio::make_strand(io_context.get_executor())),
 		current_settings(settings) {}
 
 	client_mode(client_mode &&existing_client) noexcept :
@@ -81,7 +81,7 @@ public:
 		timer_expiring_wrapper(std::move(existing_client.timer_expiring_wrapper)),
 		timer_change_ports(std::move(existing_client.timer_change_ports)),
 		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
-		asio_strand(std::move(existing_client.asio_strand)),
+		//asio_strand(std::move(existing_client.asio_strand)),
 		current_settings(std::move(existing_client.current_settings)) {}
 	
 	~client_mode();
