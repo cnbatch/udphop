@@ -25,6 +25,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Header Files\3rd_party">
+      <UniqueIdentifier>{0580ae63-1b9d-4569-9a71-ff7ecf8d2ebe}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\main.cpp">
@@ -73,6 +76,9 @@
     </ClInclude>
     <ClInclude Include="..\..\src\shares\data_operations.hpp">
       <Filter>Header Files\shares</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp">
+      <Filter>Header Files\3rd_party</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -160,7 +160,21 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 
-	callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, port_number);
+	if (enable_thread_pool)
+	{
+		size_t pointer_to_number = (size_t)this;
+		if (auto each_thread_task_limit = task_limit / sequence_task_pool.get_thread_count();
+			task_limit > 0 && each_thread_task_limit > 0 &&
+			sequence_task_pool.get_task_count(pointer_to_number) > each_thread_task_limit)
+			return;
+		sequence_task_pool.push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
+			std::move(buffer_cache));
+	}
+	else
+	{
+		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, port_number);
+	}
 	//asio::post(task_assigner, [this, data = std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint]() mutable
 	//	{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); });
 }
@@ -339,8 +353,22 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		std::copy_n(buffer_cache.get(), bytes_transferred, new_buffer.get());
 		buffer_cache.swap(new_buffer);
 	}
-
-	callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, 0);
+	
+	if (enable_thread_pool)
+	{
+		size_t pointer_to_number = (size_t)this;
+		if (auto each_thread_task_limit = task_limit / sequence_task_pool.get_thread_count();
+			task_limit > 0 && each_thread_task_limit > 0 &&
+			sequence_task_pool.get_task_count(pointer_to_number) > each_thread_task_limit)
+			return;
+		sequence_task_pool.push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },
+			std::move(buffer_cache));
+	}
+	else
+	{
+		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, 0);
+	}
 	//asio::post(task_assigner, [this, buffer = std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint]() mutable
 	//	{
 	//		callback(std::move(buffer), bytes_transferred, copy_of_incoming_endpoint, 0);
