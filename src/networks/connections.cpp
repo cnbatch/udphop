@@ -98,6 +98,8 @@ void udp_server::continue_receive()
 
 void udp_server::async_send_out(std::unique_ptr<std::vector<uint8_t>> data, udp::endpoint client_endpoint)
 {
+	if (data == nullptr)
+		return;
 	std::vector<uint8_t> &buffer = *data;
 	connection_socket.async_send_to(asio::buffer(buffer), client_endpoint,
 		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
@@ -105,6 +107,8 @@ void udp_server::async_send_out(std::unique_ptr<std::vector<uint8_t>> data, udp:
 
 void udp_server::async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer_endpoint)
 {
+	if (data == nullptr)
+		return;
 	uint8_t *buffer_raw_ptr = data.get();
 	connection_socket.async_send_to(asio::buffer(buffer_raw_ptr, data_size), peer_endpoint,
 		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
@@ -112,6 +116,8 @@ void udp_server::async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_siz
 
 void udp_server::async_send_out(std::unique_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint)
 {
+	if (data == nullptr)
+		return;
 	connection_socket.async_send_to(asio::buffer(data_ptr, data_size), client_endpoint,
 		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
 }
@@ -153,6 +159,10 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 
 	udp::endpoint copy_of_incoming_endpoint = incoming_endpoint;
 	start_receive();
+
+	if (buffer_cache == nullptr || bytes_transferred == 0)
+		return;
+
 	if (BUFFER_SIZE - bytes_transferred < BUFFER_EXPAND_SIZE)
 	{
 		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE + BUFFER_EXPAND_SIZE);
@@ -163,9 +173,7 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	if (enable_thread_pool)
 	{
 		size_t pointer_to_number = (size_t)this;
-		if (auto each_thread_task_limit = task_limit / sequence_task_pool.get_thread_count();
-			task_limit > 0 && each_thread_task_limit > 0 &&
-			sequence_task_pool.get_task_count(pointer_to_number) > each_thread_task_limit)
+		if (task_limit > 0 && sequence_task_pool.get_task_count(pointer_to_number) > task_limit)
 			return;
 		sequence_task_pool.push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
@@ -252,7 +260,7 @@ size_t udp_client::send_out(const std::vector<uint8_t> &data, udp::endpoint peer
 
 size_t udp_client::send_out(const uint8_t *data, size_t size, udp::endpoint peer_endpoint, asio::error_code &ec)
 {
-	if (stopped.load())
+	if (stopped.load() || data == nullptr)
 		return 0;
 
 	size_t sent_size = connection_socket.send_to(asio::buffer(data, size), peer_endpoint, 0, ec);
@@ -262,7 +270,7 @@ size_t udp_client::send_out(const uint8_t *data, size_t size, udp::endpoint peer
 
 void udp_client::async_send_out(std::unique_ptr<std::vector<uint8_t>> data, udp::endpoint peer_endpoint)
 {
-	if (stopped.load())
+	if (stopped.load() || data == nullptr)
 		return;
 
 	std::vector<uint8_t> &buffer = *data;
@@ -273,7 +281,7 @@ void udp_client::async_send_out(std::unique_ptr<std::vector<uint8_t>> data, udp:
 
 void udp_client::async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer_endpoint)
 {
-	if (stopped.load())
+	if (stopped.load() || data == nullptr)
 		return;
 
 	uint8_t *buffer_raw_ptr = data.get();
@@ -284,6 +292,8 @@ void udp_client::async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_siz
 
 void udp_client::async_send_out(std::unique_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint)
 {
+	if (data == nullptr || data_ptr == nullptr)
+		return;
 	connection_socket.async_send_to(asio::buffer(data_ptr, data_size), client_endpoint,
 		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
 	last_send_time.store(right_now());
@@ -347,6 +357,10 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 
 	udp::endpoint copy_of_incoming_endpoint = incoming_endpoint;
 	start_receive();
+
+	if (buffer_cache == nullptr || bytes_transferred == 0)
+		return;
+
 	if (BUFFER_SIZE - bytes_transferred < BUFFER_EXPAND_SIZE)
 	{
 		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE + BUFFER_EXPAND_SIZE);
@@ -357,9 +371,7 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	if (enable_thread_pool)
 	{
 		size_t pointer_to_number = (size_t)this;
-		if (auto each_thread_task_limit = task_limit / sequence_task_pool.get_thread_count();
-			task_limit > 0 && each_thread_task_limit > 0 &&
-			sequence_task_pool.get_task_count(pointer_to_number) > each_thread_task_limit)
+		if (task_limit > 0 && sequence_task_pool.get_task_count(pointer_to_number) > task_limit)
 			return;
 		sequence_task_pool.push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },

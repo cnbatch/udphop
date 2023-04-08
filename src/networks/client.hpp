@@ -43,7 +43,8 @@ class client_mode
 	asio::steady_timer timer_keep_alive;
 	//asio::strand<asio::io_context::executor_type> asio_strand;
 	ttp::task_thread_pool &task_assigner;
-	ttp::task_group_pool &sequence_task_pool;
+	ttp::task_group_pool &sequence_task_pool_local;
+	ttp::task_group_pool &sequence_task_pool_peer;
 	const size_t task_limit;
 
 	void udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
@@ -69,7 +70,7 @@ public:
 	client_mode(const client_mode &) = delete;
 	client_mode& operator=(const client_mode &) = delete;
 
-	client_mode(asio::io_context &io_context_ref, asio::io_context &net_io, ttp::task_thread_pool &task_pool, ttp::task_group_pool &seq_task_pool, size_t task_count_limit, const user_settings &settings) :
+	client_mode(asio::io_context &io_context_ref, asio::io_context &net_io, ttp::task_thread_pool &task_pool, ttp::task_group_pool &seq_task_pool_local, ttp::task_group_pool &seq_task_pool_peer, size_t task_count_limit, const user_settings &settings) :
 		io_context(io_context_ref),
 		network_io(net_io),
 		timer_find_timeout(io_context),
@@ -78,7 +79,8 @@ public:
 		timer_keep_alive(io_context),
 		//asio_strand(asio::make_strand(io_context.get_executor())),
 		task_assigner(task_pool),
-		sequence_task_pool(seq_task_pool),
+		sequence_task_pool_local(seq_task_pool_local),
+		sequence_task_pool_peer(seq_task_pool_peer),
 		task_limit(task_count_limit),
 		current_settings(settings) {}
 
@@ -91,7 +93,8 @@ public:
 		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
 		//asio_strand(std::move(existing_client.asio_strand)),
 		task_assigner(existing_client.task_assigner),
-		sequence_task_pool(existing_client.sequence_task_pool),
+		sequence_task_pool_local(existing_client.sequence_task_pool_local),
+		sequence_task_pool_peer(existing_client.sequence_task_pool_peer),
 		task_limit(existing_client.task_limit),
 		current_settings(std::move(existing_client.current_settings)) {}
 	

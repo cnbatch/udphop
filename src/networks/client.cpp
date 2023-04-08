@@ -48,7 +48,7 @@ bool client_mode::start()
 	try
 	{
 		udp_callback_t udp_func_ap = std::bind(&client_mode::udp_server_incoming, this, _1, _2, _3, _4);
-		udp_access_point = std::make_unique<udp_server>(network_io, sequence_task_pool, task_limit, false, listen_on_ep, udp_func_ap);
+		udp_access_point = std::make_unique<udp_server>(network_io, sequence_task_pool_local, task_limit, false, listen_on_ep, udp_func_ap);
 
 		timer_find_timeout.expires_after(FINDER_TIMEOUT_INTERVAL);
 		timer_find_timeout.async_wait([this](const asio::error_code &e) { find_expires(e); });
@@ -105,7 +105,7 @@ void client_mode::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t da
 
 				std::shared_ptr<data_wrapper<forwarder, udp::endpoint>> data_wrapper_ptr = std::make_shared<data_wrapper<forwarder, udp::endpoint>>(key_number);
 				auto udp_func = std::bind(&client_mode::udp_client_incoming_to_udp, this, _1, _2, _3, _4, _5);
-				std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool, task_limit, true, data_wrapper_ptr, udp_func);
+				std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, true, data_wrapper_ptr, udp_func);
 				if (udp_forwarder == nullptr)
 					return;
 
@@ -236,7 +236,7 @@ void client_mode::udp_client_incoming_to_udp_with_thread_pool(std::weak_ptr<data
 
 	std::unique_ptr<uint8_t[]> unique_nullptr;
 	auto function_and_data = task_assigner.submit(task_function, std::move(unique_nullptr));
-	sequence_task_pool.push_task((size_t)this, std::move(function_and_data), std::move(data));
+	sequence_task_pool_local.push_task((size_t)this, std::move(function_and_data), std::move(data));
 }
 
 void client_mode::udp_client_incoming_to_udp_unpack(std::weak_ptr<data_wrapper<forwarder, udp::endpoint>> wrapper_weak_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number)
@@ -431,7 +431,7 @@ void client_mode::loop_change_new_port()
 		asio::error_code ec;
 
 		auto udp_func = std::bind(&client_mode::udp_client_incoming_to_udp, this, _1, _2, _3, _4, _5);
-		auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool, task_limit, true, wrapper_ptr, udp_func);
+		auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, true, wrapper_ptr, udp_func);
 		if (udp_forwarder == nullptr)
 			continue;
 

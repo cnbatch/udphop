@@ -78,7 +78,7 @@ void server_mode::udp_server_incoming_with_thread_pool(std::unique_ptr<uint8_t[]
 
 	std::unique_ptr<uint8_t[]> unique_nullptr;
 	auto function_and_data = task_assigner.submit(task_function, std::move(unique_nullptr));
-	sequence_task_pool.push_task((size_t)this, std::move(function_and_data), std::move(data));
+	sequence_task_pool_peer.push_task((size_t)this, std::move(function_and_data), std::move(data));
 }
 
 void server_mode::udp_server_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type port_number)
@@ -199,7 +199,7 @@ bool server_mode::create_new_udp_connection(std::unique_ptr<uint8_t[]> data, con
 	{
 		udp_client_incoming(std::move(input_data), data_size, peer, port_number, wrapper);
 	};
-	std::unique_ptr<udp_client> target_connector = std::make_unique<udp_client>(io_context, sequence_task_pool, task_limit, false, udp_func_ap);
+	std::unique_ptr<udp_client> target_connector = std::make_unique<udp_client>(io_context, sequence_task_pool_local, task_limit, true, udp_func_ap);
 
 	asio::error_code ec;
 	target_connector->send_out(create_raw_random_data(EMPTY_PACKET_SIZE), local_empty_target, ec);
@@ -471,7 +471,7 @@ bool server_mode::start()
 		listen_on_ep.port(port_number);
 		try
 		{
-			udp_servers.insert({ port_number, std::make_unique<udp_server>(network_io, sequence_task_pool, task_limit, true, listen_on_ep, func) });
+			udp_servers.insert({ port_number, std::make_unique<udp_server>(network_io, sequence_task_pool_peer, task_limit, true, listen_on_ep, func) });
 		}
 		catch (std::exception &ex)
 		{
