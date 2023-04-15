@@ -40,47 +40,6 @@ void server_mode::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t da
 	udp_server_incoming_unpack(std::move(data), plain_size, peer, port_number);
 }
 
-void server_mode::udp_server_incoming_with_thread_pool(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
-{
-	if (data_size == 0)
-		return;
-
-	uint8_t *data_ptr = data.get();
-
-	std::function<ttp::task_callback(std::unique_ptr<uint8_t[]>)> task_function =
-		[this, data_ptr, data_size, peer, port_number](std::unique_ptr<uint8_t[]> null_data) -> ttp::task_callback
-	{
-		auto null_function = [](std::unique_ptr<uint8_t[]> null_data) {};
-		if (stun_header != nullptr)
-		{
-			uint32_t ipv4_address = 0;
-			uint16_t ipv4_port = 0;
-			std::array<uint8_t, 16> ipv6_address{};
-			uint16_t ipv6_port = 0;
-			if (rfc8489::unpack_address_port(data_ptr, stun_header->transaction_id_part_1, stun_header->transaction_id_part_2, ipv4_address, ipv4_port, ipv6_address, ipv6_port))
-			{
-				save_external_ip_address(ipv4_address, ipv4_port, ipv6_address, ipv6_port);
-				return null_function;
-			}
-		}
-
-		if (data_size < RAW_HEADER_SIZE)
-			return null_function;
-
-		auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
-		if (!error_message.empty() || plain_size == 0)
-			return null_function;
-
-		auto return_function = [this, plain_size = plain_size, peer, port_number](std::unique_ptr<uint8_t[]> data)
-		{ udp_server_incoming_unpack(std::move(data), plain_size, peer, port_number); };
-		return return_function;
-	};
-
-	std::unique_ptr<uint8_t[]> unique_nullptr;
-	auto function_and_data = task_assigner.submit(task_function, std::move(unique_nullptr));
-	sequence_task_pool_peer.push_task((size_t)this, std::move(function_and_data), std::move(data));
-}
-
 void server_mode::udp_server_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
 	uint8_t *data_ptr = data.get();
@@ -199,7 +158,7 @@ bool server_mode::create_new_udp_connection(std::unique_ptr<uint8_t[]> data, con
 	{
 		udp_client_incoming(std::move(input_data), data_size, peer, port_number, wrapper);
 	};
-	std::unique_ptr<udp_client> target_connector = std::make_unique<udp_client>(io_context, sequence_task_pool_local, task_limit, true, udp_func_ap);
+	std::unique_ptr<udp_client> target_connector = std::make_unique<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap);
 
 	asio::error_code ec;
 	target_connector->send_out(create_raw_random_data(EMPTY_PACKET_SIZE), local_empty_target, ec);
@@ -274,6 +233,9 @@ bool server_mode::update_local_udp_target(udp_client *target_connector)
 
 void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_port, const std::array<uint8_t, 16> &ipv6_address, uint16_t ipv6_port)
 {
+	std::string v4_info;
+	std::string v6_info;
+
 	if (ipv4_address != 0 && ipv4_port != 0 && (external_ipv4_address.load() != ipv4_address || external_ipv4_port.load() != ipv4_port))
 	{
 		external_ipv4_address.store(ipv4_address);
@@ -281,10 +243,8 @@ void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_
 		std::stringstream ss;
 		ss << "External IPv4 Address: " << asio::ip::make_address_v4(ipv4_address) << "\n";
 		ss << "External IPv4 Port: " << ipv4_port << "\n";
-		std::string message = ss.str();
 		if (!current_settings.log_ip_address.empty())
-			print_ip_to_file(message, current_settings.log_ip_address);
-		std::cout << message;
+			v4_info = ss.str();
 	}
 
 	std::shared_lock locker(mutex_ipv6);
@@ -298,9 +258,14 @@ void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_
 		std::stringstream ss;
 		ss << "External IPv6 Address: " << asio::ip::make_address_v6(ipv6_address) << "\n";
 		ss << "External IPv6 Port: " << ipv6_port << "\n";
-		std::string message = ss.str();
 		if (!current_settings.log_ip_address.empty())
-			print_ip_to_file(message, current_settings.log_ip_address);
+			v6_info = ss.str();
+	}
+
+	if (!current_settings.log_ip_address.empty())
+	{
+		std::string message = "Update Time: " + time_to_string() + "\n" + v4_info + v6_info;
+		print_ip_to_file(message, current_settings.log_ip_address);
 		std::cout << message;
 	}
 }
@@ -435,7 +400,7 @@ bool server_mode::start()
 {
 	printf("start_up() running in server mode\n");
 
-	udp_callback_t func = std::bind(&server_mode::udp_server_incoming_with_thread_pool, this, _1, _2, _3, _4);
+	udp_callback_t func = std::bind(&server_mode::udp_server_incoming, this, _1, _2, _3, _4);
 	std::set<uint16_t> listen_ports;
 	if (current_settings.listen_port != 0)
 		listen_ports.insert(current_settings.listen_port);
@@ -471,7 +436,7 @@ bool server_mode::start()
 		listen_on_ep.port(port_number);
 		try
 		{
-			udp_servers.insert({ port_number, std::make_unique<udp_server>(network_io, sequence_task_pool_peer, task_limit, true, listen_on_ep, func) });
+			udp_servers.insert({ port_number, std::make_unique<udp_server>(network_io, sequence_task_pool_peer, task_limit, listen_on_ep, func) });
 		}
 		catch (std::exception &ex)
 		{

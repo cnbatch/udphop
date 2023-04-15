@@ -170,12 +170,12 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 
-	if (enable_thread_pool)
+	if (sequence_task_pool != nullptr)
 	{
 		size_t pointer_to_number = (size_t)this;
-		if (task_limit > 0 && sequence_task_pool.get_task_count(pointer_to_number) > task_limit)
+		if (task_limit > 0 && sequence_task_pool->get_task_count(pointer_to_number) > task_limit)
 			return;
-		sequence_task_pool.push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+		sequence_task_pool->push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
 			std::move(buffer_cache));
 	}
@@ -368,12 +368,12 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 	
-	if (enable_thread_pool)
+	if (sequence_task_pool != nullptr)
 	{
 		size_t pointer_to_number = (size_t)this;
-		if (task_limit > 0 && sequence_task_pool.get_task_count(pointer_to_number) > task_limit)
+		if (task_limit > 0 && sequence_task_pool->get_task_count(pointer_to_number) > task_limit)
 			return;
-		sequence_task_pool.push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+		sequence_task_pool->push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },
 			std::move(buffer_cache));
 	}

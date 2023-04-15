@@ -341,7 +341,7 @@ void print_ip_to_file(const std::string &message, const std::filesystem::path &l
 	static std::ofstream output_file{};
 	static std::mutex mtx;
 	std::unique_lock locker{ mtx };
-	output_file.open(log_file, std::ios::out | std::ios::app);
+	output_file.open(log_file, std::ios::out | std::ios::trunc);
 	output_file << message;
 	output_file.close();
 }
