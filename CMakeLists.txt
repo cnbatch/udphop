@@ -2,14 +2,13 @@ cmake_minimum_required(VERSION 3.15.0 FATAL_ERROR)
 
 project(udphop CXX)
 
-set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-if(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
+if(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD" OR ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD")
 	include_directories("/usr/local/include")
 	include_directories("/usr/local/include/botan-2")
 endif()

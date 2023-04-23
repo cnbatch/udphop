@@ -98,6 +98,7 @@ encryption_algorithm=AES-GCM
 | keep_alive           | 0 - 65535          |否    |预设值为 0，等于停用 Keep Alive |
 | stun_server          | STUN 服务器地址     |否    |listen_port 为端口范围模式时不可使用|
 | log_path             | 存放 Log 的目录     |否    |不能指向文件本身|
+| ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |否|若系统禁用了 IPv6，须启用该选项并设为 yes 或 true 或 1|
 
 ### Log 文件
 在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就覆盖），将 IP 地址与端口写进去。
@@ -139,7 +140,7 @@ encryption_algorithm=AES-GCM
 - FreeBSD
 - Linux
 
-预编译的二进制文件全部都是静态编译。Linux 版本基本上都是静态编译，但 libc 除外，因此准备了两个版本，一个用于 glibc，另一个用于 musl。
+预编译的二进制文件全部都是静态编译。Linux 版本基本上都是静态编译，但 libc 除外，因此准备了两个版本，一个用于 glibc (2.31)，另一个用于 musl。
 
 ### Docker 镜像
 
@@ -237,51 +238,35 @@ cmake ..
 make
 ```
 
-如果所使用发行版的 asio 版本过低，需要自行解决。
+#### 静态编译注意事项
+有两种做法
+
+- **做法1**
+
+    按照正常流程编译好，删除刚刚生成的 udphop 二进制文件，并运行命令
+    ```
+    make VERBOSE=1
+    ```
+    再从输出的内容提取出最后一条 C++ 链接命令，把中间的 `-lbotan-2` 改成 libbotan-2.a 的**完整路径**，例如 `/usr/lib/x86_64-linux-gnu/libbotan-2.a`。
+
+
+- **做法2**
+
+    打开 src/CMakeLists.txt，把 `target_link_libraries(${PROJECT_NAME} PRIVATE botan-2)` 改成 `target_link_libraries(${PROJECT_NAME} PRIVATE botan-2 -static)`
+
+    然后即可正常编译。注意，如果系统使用 glibc 的话，这样会连同 glibc 一并静态编译，从而会跳出有关 getaddrinfo 的警告。
 
 ### macOS
 我没苹果电脑，所有步骤请自行解决。
 
-### 静态编译注意事项（适用于 Linux 及 NetBSD）
-有两种办法
-
-#### 办法1
-按照正常流程编译好，删除刚刚生成的 udphop 二进制文件，并运行命令
-```
-make VERBOSE=1
-```
-再从输出的内容提取出最后一条 C++ 链接命令，把中间的 `-lbotan-2` 改成 libbotan-2.a 的**完整路径**，例如 `/usr/lib/x86_64-linux-gnu/libbotan-2.a`。
-
-
-#### 办法2
-打开 src/CMakeLists.txt，把 `target_link_libraries(${PROJECT_NAME} PRIVATE botan-2)` 改成 `target_link_libraries(${PROJECT_NAME} PRIVATE botan-2 -static)`
-
-然后即可正常编译。注意，如果系统使用 glibc 的话，这样会连同 glibc 一并静态编译，从而会跳出有关 getaddrinfo 的警告。
-
 ---
 
 ## IPv4 映射 IPv6
-由于该项目内部使用的是 IPv6 单栈 + 开启 IPv4 映射地址（IPv4-mapped IPv6）来使用 IPv4 网络，因此请确保 v6only 选项的值为 0。
+由于 udphop 内部使用的是 IPv6 单栈 + 开启 IPv4 映射地址（IPv4-mapped IPv6）来同时使用 IPv4 与 IPv6 网络，因此请确保 v6only 选项的值为 0。
 
 **正常情况下不需要任何额外设置，FreeBSD 与 Linux 以及 Windows 都默认允许 IPv4 地址映射到 IPv6。**
 
-如果不放心，那么可以这样做
-### FreeBSD
-按照FreeBSD手册 [33.9.5. IPv6 and IPv4 Address Mapping](https://docs.freebsd.org/en/books/handbook/advanced-networking/#_ipv6_and_ipv4_address_mapping) 介绍，在 `/etc/rc.conf` 加一行即可
-```
-ipv6_ipv4mapping="YES"
-```
-如果还是不放心，那就运行命令
-```
-sysctl net.inet6.ip6.v6only=0
-```
-
-### Linux
-可运行命令
-```
-sysctl -w net.ipv6.bindv6only=0
-```
-正常情况下不需要这样做，它的默认值就是 0。
+如果系统不支持 IPv6，或者禁用了 IPv6，请在配置文件中设置 ipv4_only=true，这样 udphop 会退回到使用 IPv4 单栈模式。
 
 ## 其它注意事项
 ### NetBSD
@@ -291,12 +276,17 @@ sysctl -w net.inet6.ip6.v6only=0
 ```
 设置后，单栈+映射地址模式可以侦听双栈。
 
-但由于未知的原因，它无法主动连接 IPv4 映射地址，因此 `destination_address` 只能使用 IPv6 地址。
+但由于未知的原因，无法主动连接 IPv4 映射地址。
 
 ### OpenBSD
-因为 OpenBSD 彻底屏蔽了 IPv4 映射地址，所以在 OpenBSD 平台只能使用 IPv6 单栈模式。
+因为 OpenBSD 彻底屏蔽了 IPv4 映射地址，所以在 OpenBSD 平台使用双栈的话，需要将配置文件保存成两个，其中一个启用 ipv4_only=1，然后在使用 udphop 时同时载入两个配置文件。
 
 ## 关于代码
+
+### 线程池
+udphop 使用的线程池来自于 [BS::thread_pool](https://github.com/bshoshany/thread-pool)，另外再做了些许修改，用于多连接时的并行加解密处理。
+
+### 版面
 代码写得很随意，想到哪写到哪，因此版面混乱。
 
 至于阅读者的感受嘛…… 那肯定会不爽。

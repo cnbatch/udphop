@@ -25,7 +25,12 @@ bool client_mode::start()
 	if (port_number == 0)
 		return false;
 
-	udp::endpoint listen_on_ep(udp::v6(), port_number);
+	udp::endpoint listen_on_ep;
+	if (current_settings.ipv4_only)
+		listen_on_ep = udp::endpoint(udp::v4(), port_number);
+	else
+		listen_on_ep = udp::endpoint(udp::v6(), port_number);
+
 	if (!current_settings.listen_on.empty())
 	{
 		asio::error_code ec;
@@ -38,7 +43,7 @@ bool client_mode::start()
 			return false;
 		}
 
-		if (local_address.is_v4())
+		if (local_address.is_v4() && !current_settings.ipv4_only)
 			listen_on_ep.address(asio::ip::make_address_v6(asio::ip::v4_mapped, local_address.to_v4()));
 		else
 			listen_on_ep.address(local_address);
@@ -105,7 +110,7 @@ void client_mode::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t da
 
 				std::shared_ptr<data_wrapper<forwarder, udp::endpoint>> data_wrapper_ptr = std::make_shared<data_wrapper<forwarder, udp::endpoint>>(key_number);
 				auto udp_func = std::bind(&client_mode::udp_client_incoming_to_udp, this, _1, _2, _3, _4, _5);
-				std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, data_wrapper_ptr, udp_func);
+				std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, data_wrapper_ptr, udp_func, current_settings.ipv4_only);
 				if (udp_forwarder == nullptr)
 					return;
 
@@ -391,7 +396,7 @@ void client_mode::loop_change_new_port()
 		asio::error_code ec;
 
 		auto udp_func = std::bind(&client_mode::udp_client_incoming_to_udp, this, _1, _2, _3, _4, _5);
-		auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, wrapper_ptr, udp_func);
+		auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, wrapper_ptr, udp_func, current_settings.ipv4_only);
 		if (udp_forwarder == nullptr)
 			continue;
 

@@ -158,7 +158,7 @@ bool server_mode::create_new_udp_connection(std::unique_ptr<uint8_t[]> data, con
 	{
 		udp_client_incoming(std::move(input_data), data_size, peer, port_number, wrapper);
 	};
-	std::unique_ptr<udp_client> target_connector = std::make_unique<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap);
+	std::unique_ptr<udp_client> target_connector = std::make_unique<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, current_settings.ipv4_only);
 
 	asio::error_code ec;
 	target_connector->send_out(create_raw_random_data(EMPTY_PACKET_SIZE), local_empty_target, ec);
@@ -382,7 +382,7 @@ void server_mode::send_stun_request(const asio::error_code &e)
 	if (current_settings.stun_server.empty())
 		return;
 
-	resend_stun_8489_request(*udp_servers.begin()->second, current_settings.stun_server, stun_header.get());
+	resend_stun_8489_request(*udp_servers.begin()->second, current_settings.stun_server, stun_header.get(), current_settings.ipv4_only);
 
 	timer_stun.expires_after(STUN_RESEND);
 	timer_stun.async_wait([this](const asio::error_code &e) { send_stun_request(e); });
@@ -411,7 +411,12 @@ bool server_mode::start()
 			listen_ports.insert(port_number);
 	}
 
-	udp::endpoint listen_on_ep(udp::v6(), *listen_ports.begin());
+	udp::endpoint listen_on_ep;
+	if (current_settings.ipv4_only)
+		listen_on_ep = udp::endpoint(udp::v4(), *listen_ports.begin());
+	else
+		listen_on_ep = udp::endpoint(udp::v6(), *listen_ports.begin());
+
 	if (!current_settings.listen_on.empty())
 	{
 		asio::error_code ec;
@@ -424,7 +429,7 @@ bool server_mode::start()
 			return false;
 		}
 
-		if (local_address.is_v4())
+		if (local_address.is_v4() && !current_settings.ipv4_only)
 			listen_on_ep.address(asio::ip::make_address_v6(asio::ip::v4_mapped, local_address.to_v4()));
 		else
 			listen_on_ep.address(local_address);
@@ -460,7 +465,7 @@ bool server_mode::start()
 
 		if (!current_settings.stun_server.empty())
 		{
-			stun_header = send_stun_8489_request(*udp_servers.begin()->second, current_settings.stun_server);
+			stun_header = send_stun_8489_request(*udp_servers.begin()->second, current_settings.stun_server, current_settings.ipv4_only);
 			timer_stun.expires_after(std::chrono::seconds(1));
 			timer_stun.async_wait([this](const asio::error_code &e) { send_stun_request(e); });
 		}

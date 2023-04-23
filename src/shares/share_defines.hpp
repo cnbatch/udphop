@@ -21,9 +21,9 @@ constexpr uint16_t DEFAULT_TIMEOUT = 1800;	// second
 template<typename T>
 T generate_random_number()
 {
-	std::random_device rd;
-	std::mt19937 mt(rd());
-	std::uniform_int_distribution<T> uniform_dist(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
+	thread_local std::random_device rd;
+	thread_local std::mt19937 mt(rd());
+	thread_local std::uniform_int_distribution<T> uniform_dist(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
 	return uniform_dist(mt);
 }
 
@@ -41,6 +41,7 @@ struct user_settings
 	uint16_t timeout = 0;	 // seconds
 	encryption_mode encryption = encryption_mode::empty;
 	running_mode mode = running_mode::empty;
+	bool ipv4_only = false;
 	std::string listen_on;
 	std::string destination_address;
 	std::string encryption_password;

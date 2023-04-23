@@ -91,15 +91,15 @@ class udp_client
 {
 public:
 	udp_client() = delete;
-	udp_client(asio::io_context &io_context, udp_callback_t callback_func)
+	udp_client(asio::io_context &io_context, udp_callback_t callback_func, bool v4_only = false)
 		: sequence_task_pool(nullptr), connection_socket(io_context), resolver(io_context), callback(callback_func),
-		task_limit(0), last_receive_time(right_now()), last_send_time(right_now()), paused(false), stopped(false)
+		task_limit(0), last_receive_time(right_now()), last_send_time(right_now()), paused(false), stopped(false), ipv4_only(v4_only)
 	{
 		initialise();
 	}
-	udp_client(asio::io_context &io_context, ttp::task_group_pool &task_pool, size_t task_count_limit, udp_callback_t callback_func)
+	udp_client(asio::io_context &io_context, ttp::task_group_pool &task_pool, size_t task_count_limit, udp_callback_t callback_func, bool v4_only = false)
 		: sequence_task_pool(&task_pool), connection_socket(io_context), resolver(io_context), callback(callback_func),
-		task_limit(task_count_limit), last_receive_time(right_now()), last_send_time(right_now()), paused(false), stopped(false)
+		task_limit(task_count_limit), last_receive_time(right_now()), last_send_time(right_now()), paused(false), stopped(false), ipv4_only(v4_only)
 	{
 		initialise();
 	}
@@ -144,6 +144,7 @@ protected:
 	std::atomic<bool> paused;
 	std::atomic<bool> stopped;
 	const size_t task_limit;
+	const bool ipv4_only;
 };
 
 template<typename F, typename C>
@@ -276,8 +277,8 @@ class forwarder : public udp_client
 public:
 	using process_data_t = std::function<void(std::weak_ptr<data_wrapper<forwarder, udp::endpoint>>, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
 	forwarder() = delete;
-	forwarder(asio::io_context &io_context, ttp::task_group_pool &task_pool, size_t task_count_limit, std::weak_ptr<data_wrapper<forwarder, udp::endpoint>> input_wrapper, process_data_t callback_func) :
-		udp_client(io_context, task_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)),
+	forwarder(asio::io_context &io_context, ttp::task_group_pool &task_pool, size_t task_count_limit, std::weak_ptr<data_wrapper<forwarder, udp::endpoint>> input_wrapper, process_data_t callback_func, bool v4_only = false) :
+		udp_client(io_context, task_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
 		wrapper(input_wrapper), callback(callback_func) {}
 
 	void replace_callback(process_data_t callback_func)
@@ -305,8 +306,8 @@ private:
 	process_data_t callback;
 };
 
-std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host);
-std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host);
-void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, rfc8489::stun_header *header);
+std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
+std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
+void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, rfc8489::stun_header *header, bool v4_only = false);
 
 #endif // !__CONNECTIONS__
