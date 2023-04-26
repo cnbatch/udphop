@@ -411,7 +411,11 @@ void client_mode::loop_change_new_port()
 		std::shared_ptr<forwarder> new_forwarder = udp_forwarder;
 		std::vector<uint8_t> keep_alive_packet = create_empty_data(current_settings.encryption_password, current_settings.encryption, EMPTY_PACKET_SIZE);
 		wrapper_ptr->write_iden(keep_alive_packet.data());
-		new_forwarder->send_out(std::move(keep_alive_packet), local_empty_target, ec);
+		if (current_settings.ipv4_only)
+			new_forwarder->send_out(std::move(keep_alive_packet), local_empty_target_v4, ec);
+		else
+			new_forwarder->send_out(std::move(keep_alive_packet), local_empty_target_v6, ec);
+
 		if (ec)
 		{
 			timestamp += current_settings.dynamic_port_refresh;

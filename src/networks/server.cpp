@@ -161,7 +161,11 @@ bool server_mode::create_new_udp_connection(std::unique_ptr<uint8_t[]> data, con
 	std::unique_ptr<udp_client> target_connector = std::make_unique<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, current_settings.ipv4_only);
 
 	asio::error_code ec;
-	target_connector->send_out(create_raw_random_data(EMPTY_PACKET_SIZE), local_empty_target, ec);
+	if (current_settings.ipv4_only)
+		target_connector->send_out(create_raw_random_data(EMPTY_PACKET_SIZE), local_empty_target_v4, ec);
+	else
+		target_connector->send_out(create_raw_random_data(EMPTY_PACKET_SIZE), local_empty_target_v6, ec);
+
 	if (ec)
 		return false;
 

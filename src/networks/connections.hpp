@@ -36,7 +36,8 @@ constexpr auto STUN_RESEND = std::chrono::seconds(30);
 constexpr auto FINDER_TIMEOUT_INTERVAL = std::chrono::seconds(1);
 constexpr auto CHANGEPORT_UPDATE_INTERVAL = std::chrono::seconds(1);
 constexpr auto EXPRING_UPDATE_INTERVAL = std::chrono::seconds(2);
-const asio::ip::udp::endpoint local_empty_target(asio::ip::make_address_v6("::1"), 70);
+const asio::ip::udp::endpoint local_empty_target_v4(asio::ip::make_address_v4("127.0.0.1"), 70);
+const asio::ip::udp::endpoint local_empty_target_v6(asio::ip::make_address_v6("::1"), 70);
 
 
 class forwarder;
