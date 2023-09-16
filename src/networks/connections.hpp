@@ -40,7 +40,7 @@ const asio::ip::udp::endpoint local_empty_target_v4(asio::ip::make_address_v4("1
 const asio::ip::udp::endpoint local_empty_target_v6(asio::ip::make_address_v6("::1"), 70);
 
 
-class forwarder;
+struct udp_mappings;
 
 using udp_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
 
@@ -48,6 +48,111 @@ int64_t right_now();
 
 void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3);
 
+namespace packet
+{
+#pragma pack (push, 1)
+	struct packet_layer
+	{
+		uint32_t iden;
+		int64_t timestamp;
+		uint8_t data[1];
+	};
+#pragma pack(pop)
+
+	class data_wrapper
+	{
+	private:
+		const uint32_t iden;
+		std::weak_ptr<udp_mappings> udp_session_ptr;
+
+	public:
+		data_wrapper() = delete;
+		data_wrapper(uint32_t id, std::weak_ptr<udp_mappings> related_session_ptr) :
+			iden(id), udp_session_ptr(related_session_ptr) {}
+
+		static uint32_t extract_iden(const std::vector<uint8_t> &input_data)
+		{
+			const packet_layer *ptr = (const packet_layer *)input_data.data();
+			return ptr->iden;
+		}
+
+		static uint32_t extract_iden(const uint8_t *input_data)
+		{
+			const packet_layer *ptr = (const packet_layer *)input_data;
+			return ptr->iden;
+		}
+
+		uint32_t get_iden() { return iden; }
+
+		void write_iden(uint8_t *input_data)
+		{
+			packet_layer *ptr = (packet_layer *)input_data;
+			ptr->iden = iden;
+		}
+
+		std::tuple<int64_t, const uint8_t *, size_t> receive_data(const uint8_t *input_data, size_t length)
+		{
+			const packet_layer *ptr = (const packet_layer *)input_data;
+			int64_t timestamp = ptr->timestamp;
+			const uint8_t *data_ptr = ptr->data;
+			size_t data_size = length - (data_ptr - input_data);
+
+			return { timestamp, data_ptr, data_size };
+		}
+
+		std::pair<int64_t, std::vector<uint8_t>> receive_data(const std::vector<uint8_t> &input_data)
+		{
+			const packet_layer *ptr = (const packet_layer *)input_data.data();
+			int64_t timestamp = ptr->timestamp;
+			const uint8_t *data_ptr = ptr->data;
+
+			size_t data_size = input_data.size() - (data_ptr - input_data.data());
+
+			return { timestamp, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
+		}
+
+		std::vector<uint8_t> pack_data(const uint8_t *input_data, size_t data_size)
+		{
+			auto timestamp = right_now();
+			size_t new_size = sizeof(packet_layer) - 1 + data_size;
+
+			std::vector<uint8_t> new_data(new_size);
+			packet_layer *ptr = (packet_layer *)new_data.data();
+			ptr->iden = iden;
+			ptr->timestamp = timestamp;
+			uint8_t *data_ptr = ptr->data;
+
+			if (data_size > 0)
+				std::copy_n(input_data, data_size, data_ptr);
+
+			return new_data;
+		}
+
+		size_t pack_data(uint8_t *input_data, size_t data_size)
+		{
+			auto timestamp = right_now();
+			size_t new_size = sizeof(packet_layer) - 1 + data_size;
+			uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
+
+			packet_layer *ptr = (packet_layer *)new_data;
+			ptr->iden = iden;
+			ptr->timestamp = timestamp;
+			uint8_t *data_ptr = ptr->data;
+
+			if (data_size > 0)
+				std::copy_n(input_data, data_size, data_ptr);
+
+			std::copy_n(new_data, new_size, input_data);
+
+			return new_size;
+		}
+
+		std::vector<uint8_t> pack_data(const std::vector<uint8_t> &input_data)
+		{
+			return pack_data(input_data.data(), input_data.size());
+		}
+	};
+}
 
 class udp_server
 {
@@ -148,139 +253,139 @@ protected:
 	const bool ipv4_only;
 };
 
-template<typename F, typename C>
-class data_wrapper
-{
-private:
-	uint32_t iden;
-
-public:
-	std::atomic<F *> forwarder_ptr;
-	// forwarder: local endpoint;
-	// udp_server: weak_ptr of local udp_channel (udp_client)
-	C cached_data;
-
-	data_wrapper() = delete;
-	data_wrapper(uint32_t id) : iden(id) {}
-
-	static uint32_t extract_iden(const std::vector<uint8_t> &input_data)
-	{
-		const uint8_t *ptr = input_data.data();
-		uint32_t ident = reinterpret_cast<const decltype(ident)*>(ptr)[0];
-		return ident;
-	}
-
-	static uint32_t extract_iden(const uint8_t *input_data)
-	{
-		uint32_t ident = reinterpret_cast<const decltype(ident)*>(input_data)[0];
-		return ident;
-	}
-
-	void write_iden(uint8_t *input_data)
-	{
-		reinterpret_cast<decltype(iden)*>(input_data)[0] = iden;
-	}
-
-	uint32_t get_iden() { return iden; }
-
-	std::tuple<int64_t, const uint8_t *, size_t> receive_data(const uint8_t *input_data, size_t data_size)
-	{
-		const uint8_t *ptr = input_data;
-		uint32_t iden = reinterpret_cast<const decltype(iden)*>(ptr)[0];
-
-		ptr = ptr + sizeof(iden);
-		int64_t timestamp = reinterpret_cast<const decltype(timestamp)*>(ptr)[0];
-
-		ptr = ptr + sizeof(timestamp);
-		size_t new_data_size = data_size - (ptr - input_data);
-
-		return { timestamp, ptr, new_data_size };
-	}
-
-	std::pair<int64_t, std::vector<uint8_t>> receive_data(const std::vector<uint8_t> &input_data)
-	{
-		const uint8_t *ptr = input_data.data();
-		uint32_t iden = reinterpret_cast<const decltype(iden)*>(ptr)[0];
-
-		ptr = ptr + sizeof(iden);
-		int64_t timestamp = reinterpret_cast<const decltype(timestamp)*>(ptr)[0];
-
-		ptr = ptr + sizeof(timestamp);
-		size_t data_size = input_data.size() - (ptr - input_data.data());
-
-		return { timestamp, std::vector<uint8_t>(ptr, ptr + data_size) };
-	}
-
-	std::vector<uint8_t> pack_data(const uint8_t *input_data, size_t data_size)
-	{
-		auto timestamp = right_now();
-
-		std::vector<uint8_t> new_data(sizeof(iden) + sizeof(timestamp) + data_size);
-		uint8_t *ptr = new_data.data();
-		reinterpret_cast<decltype(iden)*>(ptr)[0] = iden;
-
-		ptr = ptr + sizeof(iden);
-		reinterpret_cast<decltype(timestamp)*>(ptr)[0] = timestamp;
-
-		ptr = ptr + sizeof(timestamp);
-		if (data_size > 0)
-			std::copy_n(input_data, data_size, ptr);
-
-		return new_data;
-	}
-
-	size_t pack_data(uint8_t *input_data, size_t data_size)
-	{
-		auto timestamp = right_now();
-		size_t new_size = sizeof(iden) + sizeof(timestamp) + data_size;
-		uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
-
-		uint8_t *ptr = new_data;
-		reinterpret_cast<decltype(iden)*>(ptr)[0] = iden;
-
-		ptr = ptr + sizeof(iden);
-		reinterpret_cast<decltype(timestamp)*>(ptr)[0] = timestamp;
-
-		ptr = ptr + sizeof(timestamp);
-		if (data_size > 0)
-			std::copy_n(input_data, data_size, ptr);
-
-		std::copy_n(new_data, new_size, input_data);
-
-		return new_size;
-	}
-
-	std::vector<uint8_t> pack_data(const std::vector<uint8_t> &input_data)
-	{
-		return pack_data(input_data.data(), input_data.size());
-	}
-
-	void send_data(std::vector<uint8_t> &&output_data, udp::endpoint peer_endpoint)
-	{
-		if (forwarder_ptr.load() == nullptr)
-			return;
-
-		forwarder_ptr.load()->async_send_out(std::move(output_data), peer_endpoint);
-	}
-
-	void send_data(std::unique_ptr<uint8_t[]> output_data, uint8_t *start_pos, size_t data_size, udp::endpoint peer_endpoint)
-	{
-		if (forwarder_ptr.load() == nullptr)
-			return;
-
-		forwarder_ptr.load()->async_send_out(std::move(output_data), start_pos, data_size, peer_endpoint);
-	}
-};
+//template<typename F, typename C>
+//class data_wrapper
+//{
+//private:
+//	uint32_t iden;
+//
+//public:
+//	std::atomic<F *> forwarder_ptr;
+//	// forwarder: local endpoint;
+//	// udp_server: weak_ptr of local udp_channel (udp_client)
+//	C cached_data;
+//
+//	data_wrapper() = delete;
+//	data_wrapper(uint32_t id) : iden(id) {}
+//
+//	static uint32_t extract_iden(const std::vector<uint8_t> &input_data)
+//	{
+//		const uint8_t *ptr = input_data.data();
+//		uint32_t ident = reinterpret_cast<const decltype(ident)*>(ptr)[0];
+//		return ident;
+//	}
+//
+//	static uint32_t extract_iden(const uint8_t *input_data)
+//	{
+//		uint32_t ident = reinterpret_cast<const decltype(ident)*>(input_data)[0];
+//		return ident;
+//	}
+//
+//	void write_iden(uint8_t *input_data)
+//	{
+//		reinterpret_cast<decltype(iden)*>(input_data)[0] = iden;
+//	}
+//
+//	uint32_t get_iden() { return iden; }
+//
+//	std::tuple<int64_t, const uint8_t *, size_t> receive_data(const uint8_t *input_data, size_t data_size)
+//	{
+//		const uint8_t *ptr = input_data;
+//		uint32_t iden = reinterpret_cast<const decltype(iden)*>(ptr)[0];
+//
+//		ptr = ptr + sizeof(iden);
+//		int64_t timestamp = reinterpret_cast<const decltype(timestamp)*>(ptr)[0];
+//
+//		ptr = ptr + sizeof(timestamp);
+//		size_t new_data_size = data_size - (ptr - input_data);
+//
+//		return { timestamp, ptr, new_data_size };
+//	}
+//
+//	std::pair<int64_t, std::vector<uint8_t>> receive_data(const std::vector<uint8_t> &input_data)
+//	{
+//		const uint8_t *ptr = input_data.data();
+//		uint32_t iden = reinterpret_cast<const decltype(iden)*>(ptr)[0];
+//
+//		ptr = ptr + sizeof(iden);
+//		int64_t timestamp = reinterpret_cast<const decltype(timestamp)*>(ptr)[0];
+//
+//		ptr = ptr + sizeof(timestamp);
+//		size_t data_size = input_data.size() - (ptr - input_data.data());
+//
+//		return { timestamp, std::vector<uint8_t>(ptr, ptr + data_size) };
+//	}
+//
+//	std::vector<uint8_t> pack_data(const uint8_t *input_data, size_t data_size)
+//	{
+//		auto timestamp = right_now();
+//
+//		std::vector<uint8_t> new_data(sizeof(iden) + sizeof(timestamp) + data_size);
+//		uint8_t *ptr = new_data.data();
+//		reinterpret_cast<decltype(iden)*>(ptr)[0] = iden;
+//
+//		ptr = ptr + sizeof(iden);
+//		reinterpret_cast<decltype(timestamp)*>(ptr)[0] = timestamp;
+//
+//		ptr = ptr + sizeof(timestamp);
+//		if (data_size > 0)
+//			std::copy_n(input_data, data_size, ptr);
+//
+//		return new_data;
+//	}
+//
+//	size_t pack_data(uint8_t *input_data, size_t data_size)
+//	{
+//		auto timestamp = right_now();
+//		size_t new_size = sizeof(iden) + sizeof(timestamp) + data_size;
+//		uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
+//
+//		uint8_t *ptr = new_data;
+//		reinterpret_cast<decltype(iden)*>(ptr)[0] = iden;
+//
+//		ptr = ptr + sizeof(iden);
+//		reinterpret_cast<decltype(timestamp)*>(ptr)[0] = timestamp;
+//
+//		ptr = ptr + sizeof(timestamp);
+//		if (data_size > 0)
+//			std::copy_n(input_data, data_size, ptr);
+//
+//		std::copy_n(new_data, new_size, input_data);
+//
+//		return new_size;
+//	}
+//
+//	std::vector<uint8_t> pack_data(const std::vector<uint8_t> &input_data)
+//	{
+//		return pack_data(input_data.data(), input_data.size());
+//	}
+//
+//	void send_data(std::vector<uint8_t> &&output_data, udp::endpoint peer_endpoint)
+//	{
+//		if (forwarder_ptr.load() == nullptr)
+//			return;
+//
+//		forwarder_ptr.load()->async_send_out(std::move(output_data), peer_endpoint);
+//	}
+//
+//	void send_data(std::unique_ptr<uint8_t[]> output_data, uint8_t *start_pos, size_t data_size, udp::endpoint peer_endpoint)
+//	{
+//		if (forwarder_ptr.load() == nullptr)
+//			return;
+//
+//		forwarder_ptr.load()->async_send_out(std::move(output_data), start_pos, data_size, peer_endpoint);
+//	}
+//};
 
 
 class forwarder : public udp_client
 {
 public:
-	using process_data_t = std::function<void(std::weak_ptr<data_wrapper<forwarder, udp::endpoint>>, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
+	using process_data_t = std::function<void(std::weak_ptr<udp_mappings>, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
 	forwarder() = delete;
-	forwarder(asio::io_context &io_context, ttp::task_group_pool &task_pool, size_t task_count_limit, std::weak_ptr<data_wrapper<forwarder, udp::endpoint>> input_wrapper, process_data_t callback_func, bool v4_only = false) :
+	forwarder(asio::io_context &io_context, ttp::task_group_pool &task_pool, size_t task_count_limit, std::weak_ptr<udp_mappings> input_session, process_data_t callback_func, bool v4_only = false) :
 		udp_client(io_context, task_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
-		wrapper(input_wrapper), callback(callback_func) {}
+		udp_session_mappings(input_session), callback(callback_func) {}
 
 	void replace_callback(process_data_t callback_func)
 	{
@@ -289,7 +394,7 @@ public:
 
 	void remove_callback()
 	{
-		callback = [](std::weak_ptr<data_wrapper<forwarder, udp::endpoint>> wrapper, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint ep, asio::ip::port_type num) {};
+		callback = [](std::weak_ptr<udp_mappings> udp_session_mappings, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint ep, asio::ip::port_type num) {};
 	}
 
 private:
@@ -298,14 +403,30 @@ private:
 		if (paused.load() || stopped.load())
 			return;
 
-		if (wrapper.expired())
+		if (udp_session_mappings.expired())
 			return;
-		callback(wrapper, std::move(data), data_size, peer, local_port_number);
+		callback(udp_session_mappings, std::move(data), data_size, peer, local_port_number);
 	}
 
-	std::weak_ptr<data_wrapper<forwarder, udp::endpoint>> wrapper;
+	std::weak_ptr<udp_mappings> udp_session_mappings;
 	process_data_t callback;
 };
+
+
+struct udp_mappings
+{
+	std::shared_ptr<packet::data_wrapper> wrapper_ptr;
+	std::shared_mutex mutex_ingress_endpoint;
+	udp::endpoint ingress_source_endpoint;
+	std::shared_mutex mutex_egress_endpoint;
+	udp::endpoint egress_target_endpoint;
+	udp::endpoint egress_previous_target_endpoint;
+	std::shared_ptr<forwarder> egress_forwarder;	// client only
+	std::atomic<udp_server*> ingress_sender;	// server only
+	std::unique_ptr<udp_client> local_udp;	// server only
+	std::atomic<int64_t> changeport_timestamp;
+};
+
 
 std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
 std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);

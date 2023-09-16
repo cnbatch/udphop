@@ -19,6 +19,7 @@ void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpo
 {
 }
 
+
 std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only)
 {
 	auto udp_version = v4_only ? udp::v4() : udp::v6();
