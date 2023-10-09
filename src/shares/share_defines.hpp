@@ -14,16 +14,20 @@
 
 enum class running_mode { unknow, empty, server, client };
 enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };
-constexpr uint16_t DPORT_REFRESH_DEFAULT = 60;
-constexpr uint16_t DPORT_REFRESH_MINIMAL = 20;
-constexpr uint16_t DEFAULT_TIMEOUT = 1800;	// second
+namespace constant_values
+{
+	constexpr uint16_t dport_refresh_default = 60;
+	constexpr uint16_t dport_refresh_minimal = 20;
+	constexpr uint16_t default_timeout = 1800;	// second
+	constexpr int iv_checksum_block_size = 2;
+	constexpr int encryption_block_reserve = 48;
+}
 
 template<typename T>
 T generate_random_number()
 {
-	thread_local std::random_device rd;
-	thread_local std::mt19937 mt(rd());
-	thread_local std::uniform_int_distribution<T> uniform_dist(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
+	thread_local std::mt19937 mt(std::random_device{}());
+	std::uniform_int_distribution<T> uniform_dist(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
 	return uniform_dist(mt);
 }
 
@@ -36,7 +40,7 @@ struct user_settings
 	uint16_t destination_port = 0;
 	uint16_t destination_port_start = 0;
 	uint16_t destination_port_end = 0;
-	uint16_t dynamic_port_refresh = DPORT_REFRESH_DEFAULT;	// seconds
+	uint16_t dynamic_port_refresh = constant_values::dport_refresh_default;	// seconds
 	uint16_t keep_alive = 0;	// seconds
 	uint16_t timeout = 0;	 // seconds
 	encryption_mode encryption = encryption_mode::empty;
@@ -52,7 +56,6 @@ struct user_settings
 };
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
-void check_settings(user_settings &current_user_settings, std::vector<std::string> &error_msg);
 
 int64_t calculate_difference(int64_t number1, int64_t number2);
 std::string time_to_string();

@@ -2,6 +2,7 @@
 #include <array>
 #include <functional>
 #include <iostream>
+#include <random>
 #include <botan/gcm.h>
 #include <botan/ocb.h>
 #include <botan/sha3.h>
@@ -46,6 +47,9 @@ protected:
 	}
 
 public:
+	virtual std::array<uint8_t, 2> change_iv() = 0;
+	virtual void change_iv(std::array<uint8_t, 2> iv_raw) = 0;
+
 	template<typename T>
 	T encrypt(const T &input_plain_data, std::string &error_message)
 	{
@@ -175,7 +179,7 @@ public:
 			output_length = 0;
 			return empty_error_message;
 		}
-		
+
 		std::string error_message;
 		try
 		{
@@ -204,7 +208,7 @@ public:
 		{
 			return empty_error_message;
 		}
-		
+
 		std::string error_message;
 		try
 		{
@@ -284,6 +288,28 @@ public:
 		decoder = std::move(other.decoder);
 		return *this;
 	}
+
+	std::array<uint8_t, 2> change_iv() override
+	{
+		std::array<uint8_t, 2> iv_raw{};
+		thread_local std::mt19937 mt(std::random_device{}());
+		std::uniform_int_distribution<uint16_t> uniform_dist(0, std::numeric_limits<uint16_t>::max());
+		uint64_t random_number = uniform_dist(mt);
+		*((uint16_t*)iv_raw.data()) = (uint16_t)random_number;
+
+		uint64_t assign_number = (random_number << 48) + (random_number << 32) + (random_number << 16) + random_number;
+		uint64_t *iv_u64 = (uint64_t *)iv.data();
+		iv_u64[0] = iv_u64[1] = assign_number;
+		return iv_raw;
+	}
+
+	void change_iv(std::array<uint8_t, 2> iv_raw) override
+	{
+		uint64_t iv_number = *((uint16_t *)iv_raw.data());
+		uint64_t assign_number = (iv_number << 48) + (iv_number << 32) + (iv_number << 16) + iv_number;
+		uint64_t *iv_u64 = (uint64_t *)iv.data();
+		iv_u64[0] = iv_u64[1] = assign_number;
+	}
 };
 
 class aes_256_ocb : public encryption_base
@@ -350,6 +376,28 @@ public:
 		decoder = std::move(other.decoder);
 		return *this;
 	}
+
+	std::array<uint8_t, 2> change_iv() override
+	{
+		std::array<uint8_t, 2> iv_raw{};
+		thread_local std::mt19937 mt(std::random_device{}());
+		std::uniform_int_distribution<uint16_t> uniform_dist(0, std::numeric_limits<uint16_t>::max());
+		uint32_t random_number = uniform_dist(mt);
+		*((uint16_t*)iv_raw.data()) = (uint16_t)random_number;
+
+		uint32_t assign_number = (random_number << 16) + random_number;
+		uint32_t *iv_u32 = (uint32_t *)iv.data();
+		iv_u32[0] = iv_u32[1] = iv_u32[2] = assign_number;
+		return iv_raw;
+	}
+
+	void change_iv(std::array<uint8_t, 2> iv_raw) override
+	{
+		uint32_t iv_number = *((uint16_t *)iv_raw.data());
+		uint32_t assign_number = (iv_number << 16) + iv_number;
+		uint32_t *iv_u32 = (uint32_t *)iv.data();
+		iv_u32[0] = iv_u32[1] = iv_u32[2] = assign_number;
+	}
 };
 
 class chacha20 : public encryption_base
@@ -413,6 +461,26 @@ public:
 		decoder = std::move(other.decoder);
 		return *this;
 	}
+
+	std::array<uint8_t, 2> change_iv() override
+	{
+		std::array<uint8_t, 2> iv_raw{};
+		thread_local std::mt19937 mt(std::random_device{}());
+		std::uniform_int_distribution<uint16_t> uniform_dist(0, std::numeric_limits<uint16_t>::max());
+		uint64_t random_number = uniform_dist(mt);
+		*((uint16_t*)iv_raw.data()) = (uint16_t)random_number;
+
+		uint64_t assign_number = (random_number << 48) + (random_number << 32) + (random_number << 16) + random_number;
+		*(uint64_t *)iv.data() = assign_number;
+		return iv_raw;
+	}
+
+	void change_iv(std::array<uint8_t, 2> iv_raw) override
+	{
+		uint64_t iv_number = *((uint16_t *)iv_raw.data());
+		uint64_t assign_number = (iv_number << 48) + (iv_number << 32) + (iv_number << 16) + iv_number;
+		*(uint64_t *)iv.data() = assign_number;
+	}
 };
 
 class xchacha20 : public encryption_base
@@ -471,6 +539,28 @@ public:
 		decoder = std::move(other.decoder);
 		return *this;
 	}
+
+	std::array<uint8_t, 2> change_iv() override
+	{
+		std::array<uint8_t, 2> iv_raw{};
+		thread_local std::mt19937 mt(std::random_device{}());
+		std::uniform_int_distribution<uint16_t> uniform_dist(0, std::numeric_limits<uint16_t>::max());
+		uint64_t random_number = uniform_dist(mt);
+		*((uint16_t*)iv_raw.data()) = (uint16_t)random_number;
+
+		uint64_t assign_number = (random_number << 48) + (random_number << 32) + (random_number << 16) + random_number;
+		uint64_t *iv_u64 = (uint64_t *)iv.data();
+		iv_u64[0] = iv_u64[1] = iv_u64[2] = assign_number;
+		return iv_raw;
+	}
+
+	void change_iv(std::array<uint8_t, 2> iv_raw) override
+	{
+		uint64_t iv_number = *((uint16_t *)iv_raw.data());
+		uint64_t assign_number = (iv_number << 48) + (iv_number << 32) + (iv_number << 16) + iv_number;
+		uint64_t *iv_u64 = (uint64_t *)iv.data();
+		iv_u64[0] = iv_u64[1] = iv_u64[2] = assign_number;
+	}
 };
 
-#endif
+#endif	// !__AEAD_HPP__

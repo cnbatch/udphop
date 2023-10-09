@@ -51,6 +51,9 @@
     <ClCompile Include="..\..\src\shares\data_operations.cpp">
       <Filter>Source Files\shares</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\shares\configurations.cpp">
+      <Filter>Source Files\shares</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\shares\share_defines.hpp">
@@ -79,6 +82,12 @@
     </ClInclude>
     <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp">
       <Filter>Header Files\3rd_party</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\shares\simple_hashing.hpp">
+      <Filter>Header Files\shares</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\shares\configurations.hpp">
+      <Filter>Header Files\shares</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

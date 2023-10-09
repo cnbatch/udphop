@@ -283,16 +283,14 @@ bool client_mode::update_udp_target(std::shared_ptr<forwarder> target_connector,
 
 uint16_t client_mode::generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num)
 {
-	std::random_device rd;
-	std::mt19937 mt(rd());
+	thread_local std::mt19937 mt(std::random_device{}());
 	std::uniform_int_distribution<uint16_t> uniform_dist(start_port_num, end_port_num);
 	return uniform_dist(mt);
 }
 
 uint32_t client_mode::generate_token_number()
 {
-	std::random_device rd;
-	std::mt19937 mt(rd());
+	thread_local std::mt19937 mt(std::random_device{}());
 	std::uniform_int_distribution<uint32_t> uniform_dist(32, std::numeric_limits<uint32_t>::max() - 1);
 	return uniform_dist(mt);
 }
