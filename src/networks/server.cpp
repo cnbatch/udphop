@@ -23,7 +23,7 @@ void server_mode::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t da
 		uint16_t ipv4_port = 0;
 		std::array<uint8_t, 16> ipv6_address{};
 		uint16_t ipv6_port = 0;
-		if (rfc8489::unpack_address_port(data_ptr, stun_header->transaction_id_part_1, stun_header->transaction_id_part_2, ipv4_address, ipv4_port, ipv6_address, ipv6_port))
+		if (rfc8489::unpack_address_port(data_ptr, stun_header.get(), ipv4_address, ipv4_port, ipv6_address, ipv6_port))
 		{
 			save_external_ip_address(ipv4_address, ipv4_port, ipv6_address, ipv6_port);
 			return;

@@ -19,13 +19,13 @@ class server_mode
 	std::array<uint8_t, 16> external_ipv6_address;
 	const std::array<uint8_t, 16> zero_value_array;
 
-	std::map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
+	std::unordered_map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
 
 	std::shared_mutex mutex_wrapper_channels;
-	std::map<uint32_t, std::shared_ptr<udp_mappings>> udp_session_channels;
+	std::unordered_map<uint32_t, std::shared_ptr<udp_mappings>> udp_session_channels;
 
 	std::mutex mutex_expiring_wrapper;
-	std::map<std::shared_ptr<udp_mappings>, int64_t, std::owner_less<>> expiring_udp_sessions;
+	std::unordered_map<std::shared_ptr<udp_mappings>, int64_t> expiring_udp_sessions;
 
 	asio::steady_timer timer_expiring_sessions;
 	asio::steady_timer timer_find_timeout;

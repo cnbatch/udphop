@@ -14,6 +14,7 @@
 #include <sstream>
 #include <tuple>
 #include <shared_mutex>
+#include <unordered_map>
 #include <asio.hpp>
 
 #include "../shares/share_defines.hpp"
@@ -47,6 +48,36 @@ using udp_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, ud
 int64_t right_now();
 
 void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3);
+std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
+std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
+void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, rfc8489::stun_header *header, bool v4_only = false);
+template<typename T>
+auto split_resolved_addresses(const asio::ip::basic_resolver_results<T> &input_addresses)
+{
+	std::vector<T::endpoint> stun_servers_ipv4;
+	std::vector<T::endpoint> stun_servers_ipv6;
+	for (auto &target_address : input_addresses)
+	{
+		auto ep = target_address.endpoint();
+		auto ep_address = ep.address();
+		if (ep_address.is_v4())
+		{
+			stun_servers_ipv4.emplace_back(ep);
+			continue;
+		}
+
+		if (ep_address.is_v6())
+		{
+			if (ep_address.to_v6().is_v4_mapped())
+				stun_servers_ipv4.emplace_back(ep);
+			else
+				stun_servers_ipv6.emplace_back(target_address.endpoint());
+		}
+	}
+
+	return std::pair{ stun_servers_ipv4 , stun_servers_ipv6 };
+}
+
 
 namespace packet
 {
@@ -184,7 +215,7 @@ private:
 
 	asio::ip::port_type get_port_number();
 
-	asio::ip::port_type port_number;
+	const asio::ip::port_type port_number;
 	ttp::task_group_pool *sequence_task_pool;
 	udp::resolver resolver;
 	udp::socket connection_socket;
@@ -303,9 +334,5 @@ struct udp_mappings
 	std::atomic<int64_t> changeport_timestamp;
 };
 
-
-std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
-std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
-void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, rfc8489::stun_header *header, bool v4_only = false);
 
 #endif // !__CONNECTIONS__

@@ -16,12 +16,12 @@ class client_mode
 	std::map<udp::endpoint, std::shared_ptr<udp_mappings>> udp_endpoint_map_to_session;
 
 	std::shared_mutex mutex_udp_session_channels;
-	std::map<uint32_t, std::shared_ptr<udp_mappings>> udp_session_channels;
+	std::unordered_map<uint32_t, std::shared_ptr<udp_mappings>> udp_session_channels;
 
 	std::mutex mutex_expiring_sessions;
-	std::map<std::shared_ptr<udp_mappings>, int64_t, std::owner_less<>> expiring_sessions;
+	std::unordered_map<std::shared_ptr<udp_mappings>, int64_t> expiring_sessions;
 	std::mutex mutex_expiring_forwarders;
-	std::map<std::shared_ptr<forwarder>, int64_t, std::owner_less<>> expiring_forwarders;
+	std::unordered_map<std::shared_ptr<forwarder>, int64_t> expiring_forwarders;
 
 	std::shared_mutex mutex_target_address;
 	std::unique_ptr<asio::ip::address> target_address;
