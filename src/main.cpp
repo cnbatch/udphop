@@ -16,7 +16,7 @@ int main(int argc, char *argv[])
 	if (argc <= 1)
 	{
 		char app_name[] = "udphop";
-		printf("%s version 20231010\n", app_name);
+		printf("%s version 20231112\n", app_name);
 		printf("Usage: %s config1.conf\n", app_name);
 		printf("       %s config1.conf config2.conf...\n", app_name);
 		return 0;
