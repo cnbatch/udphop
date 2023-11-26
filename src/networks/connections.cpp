@@ -19,6 +19,44 @@ void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpo
 {
 }
 
+namespace packet
+{
+	uint64_t htonll(uint64_t value)
+	{
+		// The answer is 42
+		static const int num = 42;
+		uint64_t converted_value = value;
+
+		// Check the endianness
+		if (*reinterpret_cast<const char*>(&num) == num)
+		{
+			const uint32_t high_part = htonl(static_cast<uint32_t>(value >> 32));
+			const uint32_t low_part = htonl(static_cast<uint32_t>(value & 0xFFFFFFFFLL));
+
+			converted_value = (static_cast<uint64_t>(low_part) << 32) | high_part;
+		}
+
+		return converted_value;
+	}
+
+	uint64_t ntohll(uint64_t value)
+	{
+		// The answer is 42
+		static const int num = 42;
+		uint64_t converted_value = value;
+
+		// Check the endianness
+		if (*reinterpret_cast<const char*>(&num) == num)
+		{
+			const uint32_t high_part = ntohl(static_cast<uint32_t>(value >> 32));
+			const uint32_t low_part = ntohl(static_cast<uint32_t>(value & 0xFFFFFFFFLL));
+
+			converted_value = (static_cast<uint64_t>(low_part) << 32) | high_part;
+		}
+
+		return converted_value;
+	}
+}
 
 std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only)
 {
@@ -158,6 +196,13 @@ void udp_server::async_send_out(std::unique_ptr<uint8_t[]> data, const uint8_t *
 void udp_server::async_send_out(std::vector<uint8_t> &&data, udp::endpoint client_endpoint)
 {
 	auto asio_buffer = asio::buffer(data);
+	connection_socket.async_send_to(asio_buffer, client_endpoint,
+		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
+}
+
+void udp_server::async_send_out(std::vector<uint8_t> &&data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint)
+{
+	auto asio_buffer = asio::buffer(data_ptr, data_size);
 	connection_socket.async_send_to(asio_buffer, client_endpoint,
 		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
 }
@@ -345,6 +390,17 @@ void udp_client::async_send_out(std::vector<uint8_t> &&data, udp::endpoint peer_
 		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
 	last_send_time.store(right_now());
 }
+
+void udp_client::async_send_out(std::vector<uint8_t> &&data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint)
+{
+	if (stopped.load())
+		return;
+
+	auto asio_buffer = asio::buffer(data_ptr, data_size);
+	connection_socket.async_send_to(asio_buffer, client_endpoint,
+		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
+}
+
 
 int64_t udp_client::time_gap_of_receive()
 {

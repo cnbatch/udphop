@@ -21,6 +21,7 @@ namespace constant_values
 	constexpr uint16_t default_timeout = 1800;	// second
 	constexpr int iv_checksum_block_size = 2;
 	constexpr int encryption_block_reserve = 48;
+	constexpr int fec_container_header = 2;
 }
 
 template<typename T>
@@ -43,6 +44,8 @@ struct user_settings
 	uint16_t dynamic_port_refresh = constant_values::dport_refresh_default;	// seconds
 	uint16_t keep_alive = 0;	// seconds
 	uint16_t timeout = 0;	 // seconds
+	uint8_t fec_data = 0;
+	uint8_t fec_redundant = 0;
 	encryption_mode encryption = encryption_mode::empty;
 	running_mode mode = running_mode::empty;
 	bool ipv4_only = false;
@@ -54,6 +57,14 @@ struct user_settings
 	std::filesystem::path log_ip_address;
 	std::filesystem::path log_messages;
 };
+
+#pragma pack (push, 1)
+struct fec_container
+{
+	uint16_t data_length;
+	uint8_t data[1];
+};
+#pragma pack(pop)
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
 

@@ -1,5 +1,7 @@
 # UDP Hop
 
+[Click Here for English Version](README_EN.md)
+
 ## 简单介绍
 但凡使用过三大运营商的家用宽带，并且需要家宽互联，那么几乎都会体验到 UDP 被限速的情况。
 
@@ -21,6 +23,9 @@
 
 
 ## 用法
+
+**注意**，客户端的时间与服务端的时间务必同步，时间相差不能大于 255 秒。
+
 ### 基本用法
 `udphop config.conf`
 
@@ -99,6 +104,14 @@ encryption_algorithm=AES-GCM
 | stun_server          | STUN 服务器地址     |否    |listen_port 为端口范围模式时不可使用|
 | log_path             | 存放 Log 的目录     |否    |不能指向文件本身|
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |否|若系统禁用了 IPv6，须启用该选项并设为 yes 或 true 或 1|
+| fec                  | uint8:uint8        |否    |格式为 `fec=D:R`，例如可以填入 `fec=20:3`。<br>注意：D + R 的总数最大值为 255，不能超过这个数。<br>冒号两侧任意一个值为 0 表示不使用该选项。两端的设置必须相同。|
+
+#### 前向纠错 (FEC, Forward Error Correction)
+FEC 格式为 `fec=D:R`，其中 D 表示原始数据量，R 表示冗余数据量。D + R 的总数最大值为 255，不能超过这个数。
+
+例如可以填入 `fec=20:4`，表示每发送 20 个数据包，就生成并发送 4 个冗余包。
+
+**提醒**：不建议 AEAD 加密模式的 OpenVPN 使用这项功能，因为此时的 OpenVPN 对于乱序数据包的容忍度极差，而 UDPHop 并不负责重新排序数据包，即使是 FEC 恢复的数据同样如此。
 
 ### Log 文件
 在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就覆盖），将 IP 地址与端口写进去。
@@ -168,14 +181,14 @@ chmod +x /usr/local/bin/udphop
 
 本项目的 `service` 目录已经准备好相应服务文件。
 
-1. 找到 udphopd 文件，复制到 `/usr/local/etc/rc.d/`
-2. 运行命令 `chmod +x /usr/local/etc/rc.d/udphopd`
-3. 把配置文件复制到 `/usr/local/etc/udphopd/`
+1. 找到 udphop 文件，复制到 `/usr/local/etc/rc.d/`
+2. 运行命令 `chmod +x /usr/local/etc/rc.d/udphop`
+3. 把配置文件复制到 `/usr/local/etc/udphop/`
     - 记得把配置文件命名为 `config.conf`
-        - 完整的路径名：`/usr/local/etc/udphopd/config.conf`
-4. 在 `/etc/rc.conf` 加一行 `udphopd_enable="YES"`
+        - 完整的路径名：`/usr/local/etc/udphop/config.conf`
+4. 在 `/etc/rc.conf` 加一行 `udphop_enable="YES"`
 
-最后，运行 `service udphopd start` 即可启动服务
+最后，运行 `service udphop start` 即可启动服务
 
 ---
 
@@ -261,6 +274,42 @@ make
 
 ---
 
+## 对 UDP 传输性能的改善
+增加接收缓存可以改善 UDP 传输性能
+### FreeBSD
+可以使用命令 `sysctl kern.ipc.maxsockbuf` 查看缓存大小。如果需要调整，请运行命令（数字改为想要的数值）：
+```
+sysctl -w kern.ipc.maxsockbuf=33554434
+```
+或者在 `/etc/sysctl.conf` 写入 
+```
+kern.ipc.maxsockbuf=33554434
+```
+### NetBSD & OpenBSD
+可以使用命令 `sysctl net.inet.udp.recvspace` 查看接收缓存大小。如果需要调整，请运行命令（数字改为想要的数值）：
+```
+sysctl -w net.inet.udp.recvspace=33554434
+```
+或者在 `/etc/sysctl.conf` 写入 
+```
+net.inet.udp.recvspace=33554434
+```
+若有必要，可以同时调整 `net.inet.udp.sendspace` 的数值。这是发送缓存的设置。
+### Linux
+对于接收缓存，可以使用命令 `sysctl net.core.rmem_max` 及 `sysctl net.core.rmem_default` 查看接收缓存大小。
+
+如果需要调整，请运行命令（数字改为想要的数值）：
+```
+sysctl -w net.core.rmem_max=33554434
+sysctl -w net.core.rmem_default=33554434
+```
+或者在 `/etc/sysctl.conf` 写入 
+```
+net.core.rmem_max=33554434
+net.core.rmem_default=33554434
+```
+若有必要，可以同时调整 `net.core.wmem_max` 及 `net.core.wmem_default` 的数值。这是发送缓存的设置。
+
 ## IPv4 映射 IPv6
 由于 udphop 内部使用的是 IPv6 单栈 + 开启 IPv4 映射地址（IPv4-mapped IPv6）来同时使用 IPv4 与 IPv6 网络，因此请确保 v6only 选项的值为 0。
 
@@ -269,6 +318,20 @@ make
 如果系统不支持 IPv6，或者禁用了 IPv6，请在配置文件中设置 ipv4_only=true，这样 udphop 会退回到使用 IPv4 单栈模式。
 
 ## 其它注意事项
+### MTU
+
+UDPHop 并不拆分数据包，只会在原有数据包上套个“壳”。所以对于 OpenVPN 之类的程序而言，需要修改 MTU 值的设置。
+
+UDPHop “壳”的大小为：
+
+UDPHop 数据头占用 12 字节。
+
+- 加密选项
+    - 若启用加密，会增加 48 字节
+    - 若不启用加密，则只增加 2 字节用于校验和
+
+若启用 FEC，就再占用 5 字节。
+
 ### NetBSD
 使用命令
 ```
@@ -281,10 +344,47 @@ sysctl -w net.inet6.ip6.v6only=0
 ### OpenBSD
 因为 OpenBSD 彻底屏蔽了 IPv4 映射地址，所以在 OpenBSD 平台使用双栈的话，需要将配置文件保存成两个，其中一个启用 ipv4_only=1，然后在使用 udphop 时同时载入两个配置文件。
 
+### 多种系统都遇到的 Too Many Open Files
+大多数情况下，这种提示只会在服务器端遇到，不会在客户端遇到。
+
+如果确实在客户端遇到了，请检查 `mux_tunnels` 的数值是否过高（请顺便参考“多路复用 (mux_tunnels=N)”段落）。
+#### GhostBSD
+一般情况下，绝大多数 BSD 系统都不会遇到这种事，只有 2023 年下半年更新后的 GhostBSD 才会遇到这种现象。
+
+这是因为 GhostBSD 在 `/etc/sysctl.conf` 当中加了这一行：
+```
+kern.maxfiles=100000
+```
+这一行缩减了上限，远低于原版 FreeBSD 的对应数值。
+
+解决办法很简单，删掉这一行即可。注释掉也可以。<br />
+还可以使用命令 `sysctl kern.maxfiles=300000` 临时修改上限值。
+
+#### Linux
+由于 Linux 系统的 Open Files 数量限制为 1024，所以很容易会遇到这种问题。
+
+临时解决办法：
+1. 运行命令 `ulimit -n`，查看输出的数值
+2. 如果数值确实只有 1024，请运行命令 `ulimit -n 300000`
+
+永久解决办法：<br />
+编辑 /etc/security/limits.conf，在末尾加上
+
+```
+*         hard    nofile       300000
+*         soft    nofile       300000
+root      hard    nofile       300000
+root      soft    nofile       300000
+```
+
 ## 关于代码
 
 ### 线程池
 udphop 使用的线程池来自于 [BS::thread_pool](https://github.com/bshoshany/thread-pool)，另外再做了些许修改，用于多连接时的并行加解密处理。
+
+### FEC
+
+UDPHop 所用的 FEC 采用 Reed-Solomon 编码， FEC 代码库来自于 [fecpp](https://github.com/randombit/fecpp)，并作了些许修改。
 
 ### 版面
 代码写得很随意，想到哪写到哪，因此版面混乱。

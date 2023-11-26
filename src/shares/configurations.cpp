@@ -192,6 +192,41 @@ user_settings parse_settings(const std::vector<std::string> &args, std::vector<s
 				break;
 			}
 
+			case strhash("fec"):
+				if (auto pos = value.find(":"); pos == std::string::npos)
+				{
+					error_msg.emplace_back("invalid fec format: " + value);
+				}
+				else
+				{
+					std::string fec_data_part = value.substr(0, pos);
+					std::string fec_redundant_part = value.substr(pos + 1);
+					trim(fec_data_part);
+					trim(fec_redundant_part);
+
+					if (fec_data_part.empty() || fec_redundant_part.empty())
+					{
+						error_msg.emplace_back("invalid fec setting: " + value);
+						break;
+					}
+
+					int fec_data_number = std::stoi(fec_data_part);
+					int fec_redundant_number = std::stoi(fec_redundant_part);
+
+					if (fec_data_number > 0 && fec_data_number <= UCHAR_MAX)
+						current_user_settings.fec_data = static_cast<uint8_t>(fec_data_number);
+
+					if (fec_redundant_number > 0 && fec_redundant_number <= UCHAR_MAX)
+						current_user_settings.fec_redundant = static_cast<uint8_t>(fec_redundant_number);
+
+					if (int sum = fec_data_number + fec_redundant_number; sum > UCHAR_MAX)
+						error_msg.emplace_back("the sum of fec value is too large: " + std::to_string(sum) + " (" + arg + ")");
+
+					if (current_user_settings.fec_data == 0 || current_user_settings.fec_redundant == 0)
+						current_user_settings.fec_data = current_user_settings.fec_redundant = 0;
+				}
+				break;
+
 			default:
 				error_msg.emplace_back("unknow option: " + arg);
 			}

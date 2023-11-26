@@ -28,6 +28,9 @@
     <Filter Include="Header Files\3rd_party">
       <UniqueIdentifier>{0580ae63-1b9d-4569-9a71-ff7ecf8d2ebe}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\3rd_party">
+      <UniqueIdentifier>{8d5aac03-35e1-4ec1-805a-f20ed6380f0c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\main.cpp">
@@ -53,6 +56,12 @@
     </ClCompile>
     <ClCompile Include="..\..\src\shares\configurations.cpp">
       <Filter>Source Files\shares</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\3rd_party\fecpp.cpp">
+      <Filter>Source Files\3rd_party</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\3rd_party\fecpp_ssse3.cpp">
+      <Filter>Source Files\3rd_party</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -88,6 +97,9 @@
     </ClInclude>
     <ClInclude Include="..\..\src\shares\configurations.hpp">
       <Filter>Header Files\shares</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\3rd_party\fecpp.hpp">
+      <Filter>Header Files\3rd_party</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

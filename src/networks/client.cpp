@@ -98,51 +98,7 @@ void client_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 			iter = udp_endpoint_map_to_session.find(peer);
 			if (iter == udp_endpoint_map_to_session.end())
 			{
-				const std::string& destination_address = current_settings.destination_address;
-				uint16_t destination_port = current_settings.destination_port;
-				if (destination_port == 0)
-					destination_port = generate_new_port_number(current_settings.destination_port_start, current_settings.destination_port_end);
-
-				uint32_t key_number = generate_token_number();
-
-				std::shared_ptr<udp_mappings> udp_session_ptr = std::make_shared<udp_mappings>();
-				auto udp_func = std::bind(&client_mode::udp_connector_incoming_to_udp, this, _1, _2, _3, _4, _5);
-				std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_session_ptr, udp_func, current_settings.ipv4_only);
-				if (udp_forwarder == nullptr)
-					return;
-
-				bool success = get_udp_target(udp_forwarder, udp_session_ptr->egress_target_endpoint);
-				if (!success)
-					return;
-
-				std::shared_ptr<packet::data_wrapper> data_wrapper_ptr = std::make_shared<packet::data_wrapper>(key_number, udp_session_ptr);
-				udp_session_ptr->wrapper_ptr = data_wrapper_ptr;
-				udp_session_ptr->changeport_timestamp.store(right_now() + current_settings.dynamic_port_refresh);
-				udp_session_ptr->egress_forwarder = udp_forwarder;
-				udp_session_ptr->egress_previous_target_endpoint = udp_session_ptr->egress_target_endpoint;
-				udp_session_ptr->ingress_source_endpoint = peer;
-
-				uint8_t *packing_data_ptr = data.get();
-				size_t packed_data_size = data_wrapper_ptr->pack_data(packing_data_ptr, data_size);
-				auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, packing_data_ptr, (int)packed_data_size);
-				if (!error_message.empty() || cipher_size == 0)
-					return;
-
-				asio::error_code ec;
-				udp_forwarder->send_out(packing_data_ptr, cipher_size, udp_session_ptr->egress_target_endpoint, ec);
-				if (ec)
-				{
-					std::string error_message = time_to_string_with_square_brackets() + "Cannot Send Data: " + ec.message();
-					std::cerr << error_message << "\n";
-					print_message_to_file(error_message + "\n", current_settings.log_messages);
-					return;
-				}
-				udp_forwarder->async_receive();
-
-				std::scoped_lock locker{ mutex_udp_session_channels };
-				udp_session_channels[key_number] = udp_session_ptr;
-				udp_endpoint_map_to_session[peer] = udp_session_ptr;
-
+				udp_listener_incoming_new_connection(std::move(data), data_size, peer, port_number);
 				return;
 			}
 			else
@@ -156,17 +112,73 @@ void client_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 		}
 	}
 
-	uint8_t *packing_data_ptr = data.get();
-	auto packed_data_size = udp_session->wrapper_ptr->pack_data(packing_data_ptr, data_size);
-
-	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, packing_data_ptr, (int)packed_data_size);
-	if (error_message.empty() && cipher_size > 0)
-		udp_session->egress_forwarder->async_send_out(std::move(data), packing_data_ptr, cipher_size, udp_session->egress_target_endpoint);
-	change_new_port(udp_session);
+	if (current_settings.fec_data == 0 || current_settings.fec_redundant == 0)
+	{
+		size_t packed_data_size = udp_session->wrapper_ptr->pack_data(data.get(), data_size);
+		data_sender(udp_session, std::move(data), packed_data_size);
+	}
+	else
+	{
+		fec_maker(udp_session, std::move(data), data_size);
+	}
 }
 
+void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number)
+{
+	const std::string& destination_address = current_settings.destination_address;
+	uint16_t destination_port = current_settings.destination_port;
+	if (destination_port == 0)
+		destination_port = generate_new_port_number(current_settings.destination_port_start, current_settings.destination_port_end);
 
-void client_mode::udp_connector_incoming_to_udp(std::weak_ptr<udp_mappings> udp_session_weak_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
+	uint32_t key_number = generate_token_number();
+
+	std::shared_ptr<udp_mappings> udp_session_ptr = std::make_shared<udp_mappings>();
+	auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
+	std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_session_ptr, udp_func, current_settings.ipv4_only);
+	if (udp_forwarder == nullptr)
+		return;
+
+	bool success = get_udp_target(udp_forwarder, udp_session_ptr->egress_target_endpoint);
+	if (!success)
+		return;
+
+	std::shared_ptr<packet::data_wrapper> data_wrapper_ptr = std::make_shared<packet::data_wrapper>(key_number, udp_session_ptr);
+	udp_session_ptr->wrapper_ptr = data_wrapper_ptr;
+	udp_session_ptr->changeport_timestamp.store(right_now() + current_settings.dynamic_port_refresh);
+	udp_session_ptr->egress_forwarder = udp_forwarder;
+	udp_session_ptr->egress_previous_target_endpoint = udp_session_ptr->egress_target_endpoint;
+	udp_session_ptr->ingress_source_endpoint = peer;
+
+	uint8_t *packing_data_ptr = data.get();
+	size_t packed_data_size = data_wrapper_ptr->pack_data(packing_data_ptr, data_size);
+	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, packing_data_ptr, (int)packed_data_size);
+	if (!error_message.empty() || cipher_size == 0)
+		return;
+
+	asio::error_code ec;
+	udp_forwarder->send_out(packing_data_ptr, cipher_size, udp_session_ptr->egress_target_endpoint, ec);
+	if (ec)
+	{
+		std::string error_message = time_to_string_with_square_brackets() + "Cannot Send Data: " + ec.message();
+		std::cerr << error_message << "\n";
+		print_message_to_file(error_message + "\n", current_settings.log_messages);
+		return;
+	}
+	udp_forwarder->async_receive();
+
+	std::scoped_lock locker{ mutex_udp_session_channels };
+	udp_session_channels[key_number] = udp_session_ptr;
+	udp_endpoint_map_to_session[peer] = udp_session_ptr;
+
+	if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
+	{
+		size_t K = current_settings.fec_data;
+		size_t N = K + current_settings.fec_redundant;
+		udp_session_ptr->fec_egress_control.fecc.reset_martix(K, N);
+	}
+}
+
+void client_mode::udp_forwarder_incoming_to_udp(std::weak_ptr<udp_mappings> udp_session_weak_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
 {
 	std::shared_ptr<udp_mappings> udp_session_ptr = udp_session_weak_ptr.lock();
 	if (data_size == 0 || udp_session_ptr == nullptr)
@@ -180,10 +192,10 @@ void client_mode::udp_connector_incoming_to_udp(std::weak_ptr<udp_mappings> udp_
 	if (!error_message.empty() || plain_size == 0)
 		return;
 
-	udp_connector_incoming_to_udp_unpack(udp_session_ptr, std::move(data), plain_size, peer, local_port_number);
+	udp_forwarder_incoming_to_udp_unpack(udp_session_ptr, std::move(data), plain_size, peer, local_port_number);
 }
 
-void client_mode::udp_connector_incoming_to_udp_unpack(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number)
+void client_mode::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number)
 {
 	if (plain_size == 0 || udp_session_ptr == nullptr)
 		return;
@@ -205,6 +217,32 @@ void client_mode::udp_connector_incoming_to_udp_unpack(std::shared_ptr<udp_mappi
 		auto timestamp = right_now();
 		if (calculate_difference(timestamp, packet_timestamp) > TIME_GAP)
 			return;
+
+		if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
+		{
+			std::pair<std::unique_ptr<uint8_t[]>, size_t> original_data;
+			auto [packet_header, fec_data_ptr, fec_data_size] = udp_session_ptr->wrapper_ptr->receive_data_with_fec(data.get(), plain_size);
+			uint32_t fec_sn = packet_header.sn;
+			uint8_t fec_sub_sn = packet_header.sub_sn;
+			if (packet_header.sub_sn >= current_settings.fec_data)	// redundant data
+			{
+				original_data.first = std::make_unique<uint8_t[]>(fec_data_size);
+				original_data.second = fec_data_size;
+				std::copy_n(fec_data_ptr, fec_data_size, original_data.first.get());
+				udp_session_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
+				return;
+			}
+			else	// original data
+			{
+				received_data_ptr = fec_data_ptr;
+				received_size = fec_data_size;
+				original_data.first = std::make_unique<uint8_t[]>(fec_data_size);
+				original_data.second = fec_data_size;
+				std::copy_n(fec_data_ptr, fec_data_size, original_data.first.get());
+				udp_session_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
+				fec_find_missings(udp_session_ptr.get(), udp_session_ptr->fec_egress_control, fec_sn, current_settings.fec_data);
+			}
+		}
 
 		std::shared_lock shared_locker_ingress_endpoint{ udp_session_ptr->mutex_ingress_endpoint };
 		udp::endpoint udp_endpoint = udp_session_ptr->ingress_source_endpoint;
@@ -279,6 +317,78 @@ bool client_mode::update_udp_target(std::shared_ptr<forwarder> target_connector,
 	}
 
 	return connect_success;
+}
+
+void client_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size)
+{
+	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
+	if (error_message.empty() && cipher_size > 0)
+		udp_session_ptr->egress_forwarder->async_send_out(std::move(data), cipher_size, udp_session_ptr->egress_target_endpoint);
+	change_new_port(udp_session_ptr);
+}
+
+void client_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::vector<uint8_t> &&data)
+{
+	std::string error_message;
+	std::vector<uint8_t> encrypted_data = encrypt_data(current_settings.encryption_password, current_settings.encryption, std::move(data), error_message);
+	if (error_message.empty() && encrypted_data.size() > 0)
+		udp_session_ptr->egress_forwarder->async_send_out(std::move(encrypted_data), udp_session_ptr->egress_target_endpoint);
+	change_new_port(udp_session_ptr);
+}
+
+void client_mode::fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size)
+{
+	fec_control_data &fec_controllor = udp_session_ptr->fec_egress_control;
+	
+	fec_controllor.fec_snd_cache.emplace_back(clone_into_pair(data.get(), data_size));
+
+	size_t fec_data_buffer_size = udp_session_ptr->wrapper_ptr->pack_data_with_fec(data.get(), data_size, fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
+	data_sender(udp_session_ptr, std::move(data), fec_data_buffer_size);
+
+	if (fec_controllor.fec_snd_cache.size() == current_settings.fec_data)
+	{
+		auto [array_data, fec_align_length, total_size] = compact_into_container(fec_controllor.fec_snd_cache);
+		auto redundants = fec_controllor.fecc.encode(array_data.get(), total_size, fec_align_length);
+		for (auto &data_ptr : redundants)
+		{
+			std::vector<uint8_t> fec_redundant_buffer = udp_session_ptr->wrapper_ptr->pack_data_with_fec(
+				(const uint8_t *)data_ptr.get(), fec_align_length,
+				fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
+			data_sender(udp_session_ptr, std::move(fec_redundant_buffer));
+		}
+		fec_controllor.fec_snd_cache.clear();
+		fec_controllor.fec_snd_sub_sn.store(0);
+		fec_controllor.fec_snd_sn++;
+	}
+}
+
+void client_mode::fec_find_missings(udp_mappings *udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count)
+{
+	for (auto iter = fec_controllor.fec_rcv_cache.begin(), next_iter = iter; iter != fec_controllor.fec_rcv_cache.end(); iter = next_iter)
+	{
+		++next_iter;
+		auto sn = iter->first;
+		if (fec_sn == sn)
+			continue;;
+		auto &mapped_data = iter->second;
+		if (mapped_data.size() < max_fec_data_count)
+		{
+			if (fec_sn - sn > FEC_WAITS)
+				fec_controllor.fec_rcv_cache.erase(iter);
+			continue;
+		}
+		auto [recv_data, fec_align_length] = compact_into_container(mapped_data, max_fec_data_count);
+		auto array_data = mapped_pair_to_mapped_pointer(recv_data);
+		auto restored_data = fec_controllor.fecc.decode(array_data, fec_align_length);
+
+		for (auto &[i, data] : restored_data)
+		{
+			auto [missed_data_ptr, missed_data_size] = extract_from_container(data);
+			udp_access_point->async_send_out(std::move(data), missed_data_ptr, missed_data_size, udp_session_ptr->ingress_source_endpoint);
+		}
+
+		fec_controllor.fec_rcv_cache.erase(iter);
+	}
 }
 
 uint16_t client_mode::generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num)
@@ -410,7 +520,7 @@ void client_mode::change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr
 	uint32_t iden = udp_mappings_ptr->wrapper_ptr->get_iden();
 	asio::error_code ec;
 
-	auto udp_func = std::bind(&client_mode::udp_connector_incoming_to_udp, this, _1, _2, _3, _4, _5);
+	auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
 	auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_mappings_ptr, udp_func, current_settings.ipv4_only);
 	if (udp_forwarder == nullptr)
 		return;

@@ -16,13 +16,13 @@ int main(int argc, char *argv[])
 	if (argc <= 1)
 	{
 		char app_name[] = "udphop";
-		printf("%s version 20231112\n", app_name);
+		printf("%s version 20231126\n", app_name);
 		printf("Usage: %s config1.conf\n", app_name);
 		printf("       %s config1.conf config2.conf...\n", app_name);
 		return 0;
 	}
 
-	constexpr size_t task_count_limit = (size_t)std::numeric_limits<int16_t>::max() >> 3;
+	constexpr size_t task_count_limit = 8192u;
 	uint16_t thread_group_count = 1;
 	int io_thread_count = 1;
 	if (std::thread::hardware_concurrency() > 3)

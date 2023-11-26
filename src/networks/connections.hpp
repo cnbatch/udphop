@@ -19,6 +19,7 @@
 
 #include "../shares/share_defines.hpp"
 #include "../3rd_party/thread_pool.hpp"
+#include "../3rd_party/fecpp.hpp"
 #include "stun.hpp"
 
 
@@ -32,7 +33,8 @@ constexpr size_t EMPTY_PACKET_SIZE = 1430u;
 constexpr size_t RAW_HEADER_SIZE = 12u;
 constexpr size_t RETRY_TIMES = 30u;
 constexpr size_t RETRY_WAITS = 2u;
-constexpr size_t CLEANUP_WAITS = 10;	// second
+constexpr size_t CLEANUP_WAITS = 10u;	// second
+constexpr size_t FEC_WAITS = 3u;	// second
 constexpr auto STUN_RESEND = std::chrono::seconds(30);
 constexpr auto FINDER_TIMEOUT_INTERVAL = std::chrono::seconds(1);
 constexpr auto CHANGEPORT_UPDATE_INTERVAL = std::chrono::seconds(1);
@@ -58,7 +60,20 @@ namespace packet
 		int64_t timestamp;
 		uint8_t data[1];
 	};
+
+	struct packet_layer_fec
+	{
+		uint32_t iden;
+		int64_t timestamp;
+		uint32_t sn;
+		uint8_t sub_sn;
+		uint8_t data[1];
+	};
 #pragma pack(pop)
+
+	// from https://stackoverflow.com/questions/3022552/is-there-any-standard-htonl-like-function-for-64-bits-integers-in-c
+	uint64_t htonll(uint64_t value);
+	uint64_t ntohll(uint64_t value);
 
 	class data_wrapper
 	{
@@ -74,13 +89,13 @@ namespace packet
 		static uint32_t extract_iden(const std::vector<uint8_t> &input_data)
 		{
 			const packet_layer *ptr = (const packet_layer *)input_data.data();
-			return ptr->iden;
+			return ntohl(ptr->iden);
 		}
 
 		static uint32_t extract_iden(const uint8_t *input_data)
 		{
 			const packet_layer *ptr = (const packet_layer *)input_data;
-			return ptr->iden;
+			return ntohl(ptr->iden);
 		}
 
 		uint32_t get_iden() { return iden; }
@@ -88,13 +103,13 @@ namespace packet
 		void write_iden(uint8_t *input_data)
 		{
 			packet_layer *ptr = (packet_layer *)input_data;
-			ptr->iden = iden;
+			ptr->iden = htonl(iden);
 		}
 
 		std::tuple<int64_t, const uint8_t *, size_t> receive_data(const uint8_t *input_data, size_t length)
 		{
 			const packet_layer *ptr = (const packet_layer *)input_data;
-			int64_t timestamp = ptr->timestamp;
+			int64_t timestamp = ntohll(ptr->timestamp);
 			const uint8_t *data_ptr = ptr->data;
 			size_t data_size = length - (data_ptr - input_data);
 
@@ -104,12 +119,42 @@ namespace packet
 		std::pair<int64_t, std::vector<uint8_t>> receive_data(const std::vector<uint8_t> &input_data)
 		{
 			const packet_layer *ptr = (const packet_layer *)input_data.data();
-			int64_t timestamp = ptr->timestamp;
+			int64_t timestamp = ntohll(ptr->timestamp);
 			const uint8_t *data_ptr = ptr->data;
 
 			size_t data_size = input_data.size() - (data_ptr - input_data.data());
 
 			return { timestamp, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
+		}
+
+		std::tuple<packet_layer_fec, const uint8_t *, size_t> receive_data_with_fec(const uint8_t *input_data, size_t length)
+		{
+			packet_layer_fec packet_header{};
+			const packet_layer_fec *ptr = (const packet_layer_fec *)input_data;
+			packet_header.timestamp = ntohll(ptr->timestamp);
+			packet_header.iden = ntohl(ptr->iden);
+			packet_header.sn = ntohl(ptr->sn);
+			packet_header.sub_sn = ptr->sub_sn;
+
+			const uint8_t *data_ptr = ptr->data;
+			size_t data_size = length - (data_ptr - input_data);
+
+			return { packet_header, data_ptr, data_size };
+		}
+
+		std::pair<packet_layer_fec, std::vector<uint8_t>> receive_data_with_fec(const std::vector<uint8_t> &input_data)
+		{
+			packet_layer_fec packet_header{};
+			const packet_layer_fec *ptr = (const packet_layer_fec *)input_data.data();
+			packet_header.timestamp = ntohll(ptr->timestamp);
+			packet_header.iden = ntohl(ptr->iden);
+			packet_header.sn = ntohl(ptr->sn);
+			packet_header.sub_sn = ptr->sub_sn;
+			
+			const uint8_t *data_ptr = ptr->data;
+			size_t data_size = input_data.size() - (data_ptr - input_data.data());
+
+			return { packet_header, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
 		}
 
 		std::vector<uint8_t> pack_data(const uint8_t *input_data, size_t data_size)
@@ -119,8 +164,8 @@ namespace packet
 
 			std::vector<uint8_t> new_data(new_size);
 			packet_layer *ptr = (packet_layer *)new_data.data();
-			ptr->iden = iden;
-			ptr->timestamp = timestamp;
+			ptr->iden = htonl(iden);
+			ptr->timestamp = htonll(timestamp);
 			uint8_t *data_ptr = ptr->data;
 
 			if (data_size > 0)
@@ -136,10 +181,50 @@ namespace packet
 			uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
 
 			packet_layer *ptr = (packet_layer *)new_data;
-			ptr->iden = iden;
-			ptr->timestamp = timestamp;
+			ptr->iden = htonl(iden);
+			ptr->timestamp = htonll(timestamp);
 			uint8_t *data_ptr = ptr->data;
 
+			if (data_size > 0)
+				std::copy_n(input_data, data_size, data_ptr);
+
+			std::copy_n(new_data, new_size, input_data);
+
+			return new_size;
+		}
+
+		std::vector<uint8_t> pack_data_with_fec(const uint8_t *input_data, size_t data_size, uint32_t sn, uint8_t sub_sn)
+		{
+			auto timestamp = right_now();
+			size_t new_size = sizeof(packet_layer_fec) - 1 + data_size;
+
+			std::vector<uint8_t> new_data(new_size);
+			packet_layer_fec *ptr = (packet_layer_fec *)new_data.data();
+			ptr->iden = htonl(iden);
+			ptr->timestamp = htonll(timestamp);
+			ptr->sn = htonl(sn);
+			ptr->sub_sn = sub_sn;
+
+			uint8_t *data_ptr = ptr->data;
+			if (data_size > 0)
+				std::copy_n(input_data, data_size, data_ptr);
+
+			return new_data;
+		}
+
+		size_t pack_data_with_fec(uint8_t *input_data, size_t data_size, uint32_t sn, uint8_t sub_sn)
+		{
+			auto timestamp = right_now();
+			size_t new_size = sizeof(packet_layer_fec) - 1 + data_size;
+			uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
+
+			packet_layer_fec *ptr = (packet_layer_fec *)new_data;
+			ptr->iden = htonl(iden);
+			ptr->timestamp = htonll(timestamp);
+			ptr->sn = htonl(sn);
+			ptr->sub_sn = sub_sn;
+
+			uint8_t *data_ptr = ptr->data;
 			if (data_size > 0)
 				std::copy_n(input_data, data_size, data_ptr);
 
@@ -151,6 +236,11 @@ namespace packet
 		std::vector<uint8_t> pack_data(const std::vector<uint8_t> &input_data)
 		{
 			return pack_data(input_data.data(), input_data.size());
+		}
+
+		std::vector<uint8_t> pack_data_with_fec(const std::vector<uint8_t> &input_data, uint32_t sn, uint8_t sub_sn)
+		{
+			return pack_data_with_fec(input_data.data(), input_data.size(), sn, sub_sn);
 		}
 	};
 }
@@ -176,6 +266,7 @@ public:
 	void async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer_endpoint);
 	void async_send_out(std::unique_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint);
 	void async_send_out(std::vector<uint8_t> &&data, udp::endpoint client_endpoint);
+	void async_send_out(std::vector<uint8_t> &&data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint);
 	udp::resolver& get_resolver() { return resolver; }
 
 private:
@@ -230,6 +321,7 @@ public:
 	void async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer_endpoint);
 	void async_send_out(std::unique_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint);
 	void async_send_out(std::vector<uint8_t> &&data, udp::endpoint peer_endpoint);
+	void async_send_out(std::vector<uint8_t> &&data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint);
 
 	int64_t time_gap_of_receive();
 	int64_t time_gap_of_send();
@@ -289,6 +381,14 @@ private:
 	process_data_t callback;
 };
 
+struct fec_control_data
+{
+	std::atomic<uint32_t> fec_snd_sn;
+	std::atomic<uint32_t> fec_snd_sub_sn;
+	std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> fec_snd_cache;
+	std::map<uint32_t, std::map<uint16_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>> fec_rcv_cache;	// uint32_t = snd_sn, uint16_t = sub_sn
+	fecpp::fec_code fecc;
+};
 
 struct udp_mappings
 {
@@ -302,6 +402,8 @@ struct udp_mappings
 	std::atomic<udp_server*> ingress_sender;	// server only
 	std::unique_ptr<udp_client> local_udp;	// server only
 	std::atomic<int64_t> changeport_timestamp;
+	fec_control_data fec_ingress_control;
+	fec_control_data fec_egress_control;
 };
 
 std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
