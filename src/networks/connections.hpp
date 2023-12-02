@@ -15,6 +15,7 @@
 #include <tuple>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <asio.hpp>
 
 #include "../shares/share_defines.hpp"
@@ -34,7 +35,7 @@ constexpr size_t RAW_HEADER_SIZE = 12u;
 constexpr size_t RETRY_TIMES = 30u;
 constexpr size_t RETRY_WAITS = 2u;
 constexpr size_t CLEANUP_WAITS = 10u;	// second
-constexpr size_t FEC_WAITS = 3u;	// second
+constexpr uint16_t FEC_WAITS = 3u;	// second
 constexpr auto STUN_RESEND = std::chrono::seconds(30);
 constexpr auto FINDER_TIMEOUT_INTERVAL = std::chrono::seconds(1);
 constexpr auto CHANGEPORT_UPDATE_INTERVAL = std::chrono::seconds(1);
@@ -387,6 +388,7 @@ struct fec_control_data
 	std::atomic<uint32_t> fec_snd_sub_sn;
 	std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> fec_snd_cache;
 	std::map<uint32_t, std::map<uint16_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>> fec_rcv_cache;	// uint32_t = snd_sn, uint16_t = sub_sn
+	std::unordered_set<uint32_t> fec_rcv_restored;
 	fecpp::fec_code fecc;
 };
 

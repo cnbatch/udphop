@@ -230,6 +230,7 @@ void client_mode::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappi
 				original_data.second = fec_data_size;
 				std::copy_n(fec_data_ptr, fec_data_size, original_data.first.get());
 				udp_session_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
+				fec_find_missings(udp_session_ptr.get(), udp_session_ptr->fec_egress_control, fec_sn, current_settings.fec_data);
 				return;
 			}
 			else	// original data
@@ -368,13 +369,25 @@ void client_mode::fec_find_missings(udp_mappings *udp_session_ptr, fec_control_d
 	{
 		++next_iter;
 		auto sn = iter->first;
-		if (fec_sn == sn)
-			continue;;
 		auto &mapped_data = iter->second;
 		if (mapped_data.size() < max_fec_data_count)
 		{
 			if (fec_sn - sn > FEC_WAITS)
+			{
 				fec_controllor.fec_rcv_cache.erase(iter);
+				if (auto rcv_sn_iter = fec_controllor.fec_rcv_restored.find(sn);
+					rcv_sn_iter != fec_controllor.fec_rcv_restored.end())
+					fec_controllor.fec_rcv_restored.erase(rcv_sn_iter);
+			}
+			continue;
+		}
+		if (auto rcv_sn_iter = fec_controllor.fec_rcv_restored.find(sn); rcv_sn_iter != fec_controllor.fec_rcv_restored.end())
+		{
+			if (fec_sn - sn > FEC_WAITS)
+			{
+				fec_controllor.fec_rcv_cache.erase(iter);
+				fec_controllor.fec_rcv_restored.erase(rcv_sn_iter);
+			}
 			continue;
 		}
 		auto [recv_data, fec_align_length] = compact_into_container(mapped_data, max_fec_data_count);
@@ -387,7 +400,7 @@ void client_mode::fec_find_missings(udp_mappings *udp_session_ptr, fec_control_d
 			udp_access_point->async_send_out(std::move(data), missed_data_ptr, missed_data_size, udp_session_ptr->ingress_source_endpoint);
 		}
 
-		fec_controllor.fec_rcv_cache.erase(iter);
+		fec_controllor.fec_rcv_restored.insert(sn);
 	}
 }
 
