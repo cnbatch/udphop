@@ -262,8 +262,6 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	{
 		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, port_number);
 	}
-	//asio::post(task_assigner, [this, data = std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint]() mutable
-	//	{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); });
 }
 
 asio::ip::port_type udp_server::get_port_number()
@@ -288,7 +286,8 @@ void udp_client::stop()
 {
 	stopped.store(true);
 	callback = empty_udp_callback;
-	this->disconnect();
+	if (connection_socket.is_open())
+		this->disconnect();
 }
 
 bool udp_client::is_pause()
@@ -480,8 +479,4 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	{
 		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, 0);
 	}
-	//asio::post(task_assigner, [this, buffer = std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint]() mutable
-	//	{
-	//		callback(std::move(buffer), bytes_transferred, copy_of_incoming_endpoint, 0);
-	//	});
 }

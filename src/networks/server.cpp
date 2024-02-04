@@ -393,8 +393,16 @@ void server_mode::cleanup_expiring_data_connections()
 		std::shared_ptr<udp_mappings> udp_session_ptr = iter->first;
 		int64_t expire_time = iter->second;
 		uint32_t iden = udp_session_ptr->wrapper_ptr->get_iden();
-		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
+		int64_t time_elapsed = calculate_difference(time_right_now, expire_time);
+
+		if (time_elapsed <= CLEANUP_WAITS)
 			continue;
+
+		if (time_elapsed < CLEANUP_WAITS)
+		{
+			udp_session_ptr->local_udp->stop();
+			continue;
+		}
 
 		expiring_udp_sessions.erase(iter);
 	}
@@ -502,7 +510,7 @@ server_mode::~server_mode()
 
 bool server_mode::start()
 {
-	printf("start_up() running in server mode\n");
+	printf("%.*s is running in server mode\n", (int)app_name.length(), app_name.data());
 
 	udp_callback_t func = std::bind(&server_mode::udp_listener_incoming, this, _1, _2, _3, _4);
 	std::set<uint16_t> listen_ports;

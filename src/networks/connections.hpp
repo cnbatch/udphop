@@ -339,10 +339,10 @@ protected:
 	udp::resolver resolver;
 	udp::endpoint incoming_endpoint;
 	udp_callback_t callback;
-	std::atomic<int64_t> last_receive_time;
-	std::atomic<int64_t> last_send_time;
-	std::atomic<bool> paused;
-	std::atomic<bool> stopped;
+	alignas(64) std::atomic<int64_t> last_receive_time;
+	alignas(64) std::atomic<int64_t> last_send_time;
+	alignas(64) std::atomic<bool> paused;
+	alignas(64) std::atomic<bool> stopped;
 	const size_t task_limit;
 	const bool ipv4_only;
 };
@@ -357,16 +357,6 @@ public:
 		udp_client(io_context, task_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
 		udp_session_mappings(input_session), callback(callback_func) {}
 
-	void replace_callback(process_data_t callback_func)
-	{
-		callback = callback_func;
-	}
-
-	void remove_callback()
-	{
-		callback = [](std::weak_ptr<udp_mappings> udp_session_mappings, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint ep, asio::ip::port_type num) {};
-	}
-
 private:
 	void handle_receive(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
 	{
@@ -374,7 +364,11 @@ private:
 			return;
 
 		if (udp_session_mappings.expired())
+		{
+			stop();
 			return;
+		}
+
 		callback(udp_session_mappings, std::move(data), data_size, peer, local_port_number);
 	}
 
@@ -384,8 +378,8 @@ private:
 
 struct fec_control_data
 {
-	std::atomic<uint32_t> fec_snd_sn;
-	std::atomic<uint32_t> fec_snd_sub_sn;
+	alignas(64) std::atomic<uint32_t> fec_snd_sn;
+	alignas(64) std::atomic<uint32_t> fec_snd_sub_sn;
 	std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> fec_snd_cache;
 	std::map<uint32_t, std::map<uint16_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>> fec_rcv_cache;	// uint32_t = snd_sn, uint16_t = sub_sn
 	std::unordered_set<uint32_t> fec_rcv_restored;
@@ -401,9 +395,9 @@ struct udp_mappings
 	udp::endpoint egress_target_endpoint;
 	udp::endpoint egress_previous_target_endpoint;
 	std::shared_ptr<forwarder> egress_forwarder;	// client only
-	std::atomic<udp_server*> ingress_sender;	// server only
+	alignas(64) std::atomic<udp_server*> ingress_sender;	// server only
 	std::unique_ptr<udp_client> local_udp;	// server only
-	std::atomic<int64_t> changeport_timestamp;
+	alignas(64) std::atomic<int64_t> changeport_timestamp;
 	fec_control_data fec_ingress_control;
 	fec_control_data fec_egress_control;
 };

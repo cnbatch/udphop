@@ -196,7 +196,7 @@ The compiler must support C++17.
 Dependencies:
 
 - [asio](https://github.com/chriskohlhoff/asio) ≥ 1.18.2
-- [botan2](https://github.com/randombit/botan)
+- [botan3](https://github.com/randombit/botan)
 
 ### Windows
 Please use vcpkg to install the dependency package `asio` in advance, with one command:
@@ -210,10 +210,10 @@ vcpkg install botan:x64-windows botan:x64-windows-static
 Then open `sln\udphop.sln` with Visual Studio and compile it yourself.
 
 ### FreeBSD
-Similarly, install dependencies asio and botan2 first, and cmake is also required. You can use the system's built-in pkg to install them:
+Similarly, install dependencies asio and botan3 first, and cmake is also required. You can use the system's built-in pkg to install them:
 
 ```
-pkg install asio botan2 cmake
+pkg install asio botan3 cmake
 ```
 Then build in the build directory:
 ```
@@ -224,22 +224,26 @@ make
 ```
 
 ### NetBSD
-The steps are similar to FreeBSD. Use [pkgin](https://www.netbsd.org/docs/pkgsrc/using.html) to install dependencies and cmake:
+The steps are similar to FreeBSD. For NetBSD, use [pkgin](https://www.netbsd.org/docs/pkgsrc/using.html) to install dependencies and cmake:
 ```
 pkgin install asio
-pkgin install botan-2
 pkgin install cmake
 ```
-Please refer to the above FreeBSD for building steps.
 
-Note that because the GCC version included in NetBSD is relatively low, it may not be possible to compile usable binary files successfully. It may be necessary to install a higher version of GCC using pkgin.
+Please use `pkg_add` on OpenBSD to install the two dependencies mentioned above. On DragonflyBSD, please use `pkg`, the usage is the same as FreeBSD.
+
+Since botan-3 is not yet included in these BSD systems, it needs to be compiled manually.
+
+Please refer to the aforementioned FreeBSD for the remaining build steps.
+
+Note that due to the lower versions of the compilers included in these BSD systems, please install a higher version of GCC in advance.
 
 ### Linux
-The steps are similar to FreeBSD. Install asio and botan2 as well as cmake using the package manager provided by the distribution.
+The steps are similar to FreeBSD. Install asio and botan3 as well as cmake using the package manager provided by the distribution.
 
-#### Fedora
+#### Alpine
 ````
-dnf install asio botan2 cmake
+apk add asio botan3-libs cmake
 ````
 Then build in the build directory:
 ```
@@ -258,11 +262,11 @@ There are two approaches:
     ```
     make VERBOSE=1
     ```
-    Extract the last C++ linking command from the output, replace the `-lbotan-2` in the middle with the **full path** to `libbotan-2.a`, for example `/usr/lib/x86_64-linux-gnu/libbotan-2.a`.
+    Extract the last C++ linking command from the output, replace the `-lbotan-3` in the middle with the **full path** to `libbotan-3.a`, for example `/usr/lib/x86_64-linux-gnu/libbotan-3.a`.
 
 - **Approach 2**
 
-    Open `src/CMakeLists.txt`, change `target_link_libraries(${PROJECT_NAME} PRIVATE botan-2)` to `target_link_libraries(${PROJECT_NAME} PRIVATE botan-2 -static)`.
+    Open `src/CMakeLists.txt`, change `target_link_libraries(${PROJECT_NAME} PRIVATE botan-3)` to `target_link_libraries(${PROJECT_NAME} PRIVATE botan-3 -static)`.
 
     Then compile as usual. Note that if the system uses glibc, this will statically compile glibc as well, resulting in warnings about `getaddrinfo`.
 

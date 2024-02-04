@@ -153,7 +153,7 @@ FEC 格式为 `fec=D:R`，其中 D 表示原始数据量，R 表示冗余数据�
 - FreeBSD
 - Linux
 
-预编译的二进制文件全部都是静态编译。Linux 版本基本上都是静态编译，但 libc 除外，因此准备了两个版本，一个用于 glibc (2.31)，另一个用于 musl。
+预编译的二进制文件全部都是静态编译。Linux 版本基本上都是静态编译，但 libc 除外，因此准备了两个版本，一个用于 glibc (2.36)，另一个用于 musl。
 
 ### Docker 镜像
 
@@ -193,12 +193,12 @@ chmod +x /usr/local/bin/udphop
 ---
 
 ## 编译
-编译器须支持 C++17
+编译器须支持 C++20
 
 依赖库：
 
 - [asio](https://github.com/chriskohlhoff/asio) ≥ 1.18.2
-- [botan2](https://github.com/randombit/botan)
+- [botan3](https://github.com/randombit/botan)
 
 ### Windows
 请事先使用 vcpkg 安装依赖包 `asio`，一句命令即可：
@@ -212,10 +212,10 @@ vcpkg install botan:x64-windows botan:x64-windows-static
 然后用 Visual Studio 打开 `sln\udphop.sln` 自行编译
 
 ### FreeBSD
-同样，请先安装依赖项 asio 以及 botan2，另外还需要 cmake，用系统自带 pkg 即可安装：
+同样，请先安装依赖项 asio 以及 botan3，另外还需要 cmake，用系统自带 pkg 即可安装：
 
 ```
-pkg install asio botan2 cmake
+pkg install asio botan3 cmake
 ```
 接着在 build 目录当中构建
 ```
@@ -225,23 +225,26 @@ cmake ..
 make
 ```
 
-### NetBSD
-步骤与 FreeBSD 类似，使用 [pkgin](https://www.netbsd.org/docs/pkgsrc/using.html) 安装依赖项与 cmake：
+### 其它 BSD
+步骤与 FreeBSD 类似，NetBSD 请使用 [pkgin](https://www.netbsd.org/docs/pkgsrc/using.html) 安装依赖项与 cmake：
 ```
 pkgin install asio
-pkgin install botan-2
 pkgin install cmake
 ```
-构建步骤请参考上述的 FreeBSD。
+OpenBSD 请使用 `pkg_add` 安装上述两个依赖性。DragonflyBSD 请使用 `pkg`，用法与 FreeBSD 相同。
 
-注意，由于 NetBSD 自带的 GCC 版本较低，未必能成功编译出可用的二进制文件，有可能需要用 pkgin 额外安装高版本 GCC。
+由于 botan-3 仍未被这几个 BSD 系统收录，须自行编译 botan-3。
+
+剩余的构建步骤请参考上述的 FreeBSD。
+
+注意，由于这几个 BSD 自带的编译器版本较低，请事先额外安装高版本 GCC。
 
 ### Linux
-步骤与 FreeBSD 类似，请用发行版自带的包管理器安装 asio 与 botan2 以及 cmake。
+步骤与 FreeBSD 类似，请用发行版自带的包管理器安装 asio 与 botan3 以及 cmake。
 
-#### Fedora
+#### Alpine
 ````
-dnf install asio botan2 cmake
+apk add asio botan3-libs cmake
 ````
 接着在 build 目录当中构建
 ```
@@ -260,12 +263,12 @@ make
     ```
     make VERBOSE=1
     ```
-    再从输出的内容提取出最后一条 C++ 链接命令，把中间的 `-lbotan-2` 改成 libbotan-2.a 的**完整路径**，例如 `/usr/lib/x86_64-linux-gnu/libbotan-2.a`。
+    再从输出的内容提取出最后一条 C++ 链接命令，把中间的 `-lbotan-3` 改成 libbotan-3.a 的**完整路径**，例如 `/usr/lib/x86_64-linux-gnu/libbotan-3.a`。
 
 
 - **做法2**
 
-    打开 src/CMakeLists.txt，把 `target_link_libraries(${PROJECT_NAME} PRIVATE botan-2)` 改成 `target_link_libraries(${PROJECT_NAME} PRIVATE botan-2 -static)`
+    打开 src/CMakeLists.txt，把 `target_link_libraries(${PROJECT_NAME} PRIVATE botan-3)` 改成 `target_link_libraries(${PROJECT_NAME} PRIVATE botan-3 -static)`
 
     然后即可正常编译。注意，如果系统使用 glibc 的话，这样会连同 glibc 一并静态编译，从而会跳出有关 getaddrinfo 的警告。
 

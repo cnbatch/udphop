@@ -7,10 +7,13 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <string_view>
 #include <map>
 #include <random>
 #include <filesystem>
 #include "aead.hpp"
+
+constexpr std::string_view app_name = "udphop";
 
 enum class running_mode { unknow, empty, server, client };
 enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };

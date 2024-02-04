@@ -19,7 +19,7 @@ client_mode::~client_mode()
 
 bool client_mode::start()
 {
-	printf("start_up() running in client mode (UDP)\n");
+	printf("%.*s is running in client mode\n", (int)app_name.length(), app_name.data());
 
 	uint16_t port_number = current_settings.listen_port;
 	if (port_number == 0)
@@ -437,7 +437,6 @@ void client_mode::cleanup_expiring_forwarders()
 
 		if (time_elapsed > CLEANUP_WAITS / 2 && time_elapsed < CLEANUP_WAITS)
 		{
-			forwarder_ptr->remove_callback();
 			forwarder_ptr->stop();
 			continue;
 		}
@@ -455,11 +454,19 @@ void client_mode::cleanup_expiring_data_connections()
 	for (auto iter = expiring_sessions.begin(), next_iter = iter; iter != expiring_sessions.end(); iter = next_iter)
 	{
 		++next_iter;
-		auto &[udp_session_ptr, expire_time] = *iter;
+		auto& [udp_session_ptr, expire_time] = *iter;
 		uint32_t iden = udp_session_ptr->wrapper_ptr->get_iden();
+		int64_t time_elapsed = time_right_now - expire_time;
 
-		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
+		if (time_elapsed <= CLEANUP_WAITS)
 			continue;
+
+		if (time_elapsed < CLEANUP_WAITS)
+		{
+			if (udp_session_ptr->egress_forwarder != nullptr)
+				udp_session_ptr->egress_forwarder->stop();
+			continue;
+		}
 
 		udp_endpoint_map_to_session.erase(udp_session_ptr->ingress_source_endpoint);
 		expiring_sessions.erase(iter);
@@ -468,6 +475,7 @@ void client_mode::cleanup_expiring_data_connections()
 
 void client_mode::loop_timeout_sessions()
 {
+	std::vector<std::shared_ptr<forwarder>> old_forwarders;
 	std::scoped_lock lockers{ mutex_udp_session_channels, mutex_expiring_sessions };
 	for (auto iter = udp_session_channels.begin(), next_iter = iter; iter != udp_session_channels.end(); iter = next_iter)
 	{
@@ -481,9 +489,19 @@ void client_mode::loop_timeout_sessions()
 			if (expiring_sessions.find(udp_session_ptr) == expiring_sessions.end())
 				expiring_sessions[udp_session_ptr] = right_now();
 
+			old_forwarders.push_back(udp_session_ptr->egress_forwarder);
+			udp_session_ptr->egress_forwarder->stop();
+			udp_session_ptr->egress_forwarder = nullptr;
 			udp_session_channels.erase(iter);
 			udp_session_ptr->changeport_timestamp.store(LLONG_MAX);
 		}
+	}
+
+	if (!old_forwarders.empty())
+	{
+		std::scoped_lock lock_expiring_forwarders{ mutex_expiring_forwarders };
+		for (std::shared_ptr<forwarder> old_forwarder : old_forwarders)
+			expiring_forwarders[old_forwarder] = right_now();
 	}
 }
 
@@ -569,7 +587,8 @@ void client_mode::change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr
 	udp_mappings_ptr->egress_forwarder = new_forwarder;
 
 	std::scoped_lock lock_expiring_forwarders{ mutex_expiring_forwarders };
-	expiring_forwarders.insert({ old_forwarder, right_now() });
+	if (expiring_forwarders.find(old_forwarder) == expiring_forwarders.end())
+		expiring_forwarders.insert({ old_forwarder, right_now() });
 }
 
 void client_mode::keep_alive(const asio::error_code& e)
