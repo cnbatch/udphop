@@ -63,6 +63,16 @@ If you want to listen on multiple ports and multiple network cards, separate the
 udphop config1.conf config2.conf
 ```
 
+#### Verify configuration files
+Use the ``--check-config`` option to check the configuration file for errors.
+```
+kcptube --check-config config1.conf
+```
+or
+```
+kcptube config1.conf --check-config
+```
+
 ### More Flexible Usage - Dynamic Port in Server Mode
 
 Example of client mode:

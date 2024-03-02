@@ -1,12 +1,13 @@
 ﻿#include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <iostream>
 #include <iterator>
-#include <fstream>
 #include <limits>
 #include <thread>
 
 #include "shares/share_defines.hpp"
+#include "shares/string_utils.hpp"
 #include "networks/connections.hpp"
 #include "networks/client.hpp"
 #include "networks/server.hpp"
@@ -15,7 +16,7 @@ int main(int argc, char *argv[])
 {
 	if (argc <= 1)
 	{
-		printf("%.*s version 20240204\n", (int)app_name.length(), app_name.data());
+		printf("%.*s version 20240302\n", (int)app_name.length(), app_name.data());
 		printf("Usage: %.*s config1.conf\n", (int)app_name.length(), app_name.data());
 		printf("       %.*s config1.conf config2.conf...\n", (int)app_name.length(), app_name.data());
 		return 0;
@@ -39,11 +40,19 @@ int main(int argc, char *argv[])
 
 	std::vector<client_mode> clients;
 	std::vector<server_mode> servers;
+	std::vector<user_settings> profile_settings;
 
 	bool error_found = false;
+	bool check_config = false;
 
 	for (int i = 1; i < argc; ++i)
 	{
+		if (str_utils::to_lower_copy(argv[i]) == "--check-config")
+		{
+			check_config = true;
+			continue;
+		}
+		
 		std::vector<std::string> lines;
 		std::ifstream input(argv[i]);
 		std::copy(
@@ -52,7 +61,7 @@ int main(int argc, char *argv[])
 			std::back_inserter(lines));
 
 		std::vector<std::string> error_msg;
-		user_settings settings = parse_from_args(lines, error_msg);
+		profile_settings.emplace_back(parse_from_args(lines, error_msg));
 		if (error_msg.size() > 0)
 		{
 			printf("Error(s) found in setting file %s\n", argv[i]);
@@ -64,7 +73,14 @@ int main(int argc, char *argv[])
 			error_found = true;
 			continue;
 		}
+	}
 
+	std::cout << "Error Found in Configuration File(s): " << (error_found ? "Yes" : "No") << "\n";
+	if (error_found || check_config)
+		return 0;
+
+	for (user_settings &settings : profile_settings)
+	{
 		switch (settings.mode)
 		{
 		case running_mode::client:
@@ -78,7 +94,6 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	std::cout << "Error Found in Configuration File(s): " << (error_found ? "Yes" : "No") << "\n";
 	std::cout << "Servers: " << servers.size() << "\n";
 	std::cout << "Clients: " << clients.size() << "\n";
 
