@@ -11,7 +11,48 @@
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg)
 {
-	return parse_settings(args, error_msg);
+	user_settings current_user_settings;
+	error_msg.clear();
+
+	if (std::vector<std::string> error_messages = parse_running_mode(args, current_user_settings);
+		!error_messages.empty())
+	{
+		error_msg.insert(error_msg.end(),
+			std::make_move_iterator(error_messages.begin()),
+			std::make_move_iterator(error_messages.end())
+		);
+		return current_user_settings;
+	}
+
+	if (std::vector<std::string> error_messages = parse_the_rest(args, current_user_settings);
+		!error_messages.empty())
+	{
+		error_msg.insert(error_msg.end(),
+			std::make_move_iterator(error_messages.begin()),
+			std::make_move_iterator(error_messages.end())
+		);
+		return current_user_settings;
+	}
+
+	check_settings(current_user_settings, error_msg);
+
+	return current_user_settings;
+
+	//return parse_settings(args, error_msg);
+}
+
+uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num)
+{
+	thread_local std::mt19937 mt(std::random_device{}());
+	std::uniform_int_distribution<uint16_t> uniform_dist(start_port_num, end_port_num);
+	return uniform_dist(mt);
+}
+
+uint32_t generate_token_number()
+{
+	thread_local std::mt19937 mt(std::random_device{}());
+	std::uniform_int_distribution<uint32_t> uniform_dist(32, std::numeric_limits<uint32_t>::max() - 1);
+	return uniform_dist(mt);
 }
 
 int64_t calculate_difference(int64_t number1, int64_t number2)

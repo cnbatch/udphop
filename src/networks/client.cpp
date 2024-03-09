@@ -121,6 +121,9 @@ void client_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 	{
 		fec_maker(udp_session, std::move(data), data_size);
 	}
+
+	udp_session->last_ingress_receive_time.store(right_now());
+	udp_session->last_egress_send_time.store(right_now());
 }
 
 void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number)
@@ -132,11 +135,21 @@ void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 
 	uint32_t key_number = generate_token_number();
 
+	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	std::shared_ptr<udp_mappings> udp_session_ptr = std::make_shared<udp_mappings>();
-	auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
-	std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_session_ptr, udp_func, current_settings.ipv4_only);
-	if (udp_forwarder == nullptr)
-		return;
+	try
+	{
+		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_session_ptr, udp_func, current_settings.ipv4_only);
+		if (udp_forwarder == nullptr)
+			return;
+	}
+	catch (std::exception &ex)
+	{
+		std::string error_message = time_to_string_with_square_brackets() + "Cannot create new connection, error: " + ex.what() + "\n";
+		std::cerr << error_message;
+		print_message_to_file(error_message, current_settings.log_messages);
+	}
 
 	bool success = get_udp_target(udp_forwarder, udp_session_ptr->egress_target_endpoint);
 	if (!success)
@@ -176,6 +189,9 @@ void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 		size_t N = K + current_settings.fec_redundant;
 		udp_session_ptr->fec_egress_control.fecc.reset_martix(K, N);
 	}
+
+	udp_session_ptr->last_ingress_receive_time.store(right_now());
+	udp_session_ptr->last_egress_send_time.store(right_now());
 }
 
 void client_mode::udp_forwarder_incoming_to_udp(std::weak_ptr<udp_mappings> udp_session_weak_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
@@ -250,6 +266,8 @@ void client_mode::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappi
 		shared_locker_ingress_endpoint.unlock();
 
 		udp_access_point->async_send_out(std::move(data), received_data_ptr, received_size, udp_endpoint);
+		udp_session_ptr->last_egress_receive_time.store(right_now());
+		udp_session_ptr->last_inress_send_time.store(right_now());
 	}
 
 	std::shared_lock shared_lock_udp_target{ udp_session_ptr->mutex_egress_endpoint };
@@ -404,21 +422,6 @@ void client_mode::fec_find_missings(udp_mappings *udp_session_ptr, fec_control_d
 	}
 }
 
-uint16_t client_mode::generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num)
-{
-	thread_local std::mt19937 mt(std::random_device{}());
-	std::uniform_int_distribution<uint16_t> uniform_dist(start_port_num, end_port_num);
-	return uniform_dist(mt);
-}
-
-uint32_t client_mode::generate_token_number()
-{
-	thread_local std::mt19937 mt(std::random_device{}());
-	std::uniform_int_distribution<uint32_t> uniform_dist(32, std::numeric_limits<uint32_t>::max() - 1);
-	return uniform_dist(mt);
-}
-
-
 void client_mode::cleanup_expiring_forwarders()
 {
 	auto time_right_now = right_now();
@@ -483,8 +486,8 @@ void client_mode::loop_timeout_sessions()
 		uint32_t iden = iter->first;
 		std::shared_ptr<udp_mappings> udp_session_ptr = iter->second;
 
-		if (udp_session_ptr->egress_forwarder->time_gap_of_receive() > current_settings.timeout &&
-			udp_session_ptr->egress_forwarder->time_gap_of_send() > current_settings.timeout)
+		if (time_gap_of_ingress_receive(udp_session_ptr.get()) > current_settings.timeout &&
+			time_gap_of_ingress_send(udp_session_ptr.get()) > current_settings.timeout)
 		{
 			if (expiring_sessions.find(udp_session_ptr) == expiring_sessions.end())
 				expiring_sessions[udp_session_ptr] = right_now();
@@ -551,10 +554,21 @@ void client_mode::change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr
 	uint32_t iden = udp_mappings_ptr->wrapper_ptr->get_iden();
 	asio::error_code ec;
 
-	auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
-	auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_mappings_ptr, udp_func, current_settings.ipv4_only);
-	if (udp_forwarder == nullptr)
+	std::shared_ptr<forwarder> udp_forwarder = nullptr;
+	try
+	{
+		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_mappings_ptr, udp_func, current_settings.ipv4_only);
+		if (udp_forwarder == nullptr)
+			return;
+	}
+	catch (std::exception &ex)
+	{
+		std::string error_message = time_to_string_with_square_brackets() + "Cannot switch to new port, error: " + ex.what() + "\n";
+		std::cerr << error_message;
+		print_message_to_file(error_message, current_settings.log_messages);
 		return;
+	}
 
 	uint16_t destination_port_start = current_settings.destination_port_start;
 	uint16_t destination_port_end = current_settings.destination_port_end;

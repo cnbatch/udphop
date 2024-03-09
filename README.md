@@ -115,6 +115,8 @@ encryption_algorithm=AES-GCM
 | log_path             | 存放 Log 的目录     |否    |不能指向文件本身|
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |否|若系统禁用了 IPv6，须启用该选项并设为 yes 或 true 或 1|
 | fec                  | uint8:uint8        |否    |格式为 `fec=D:R`，例如可以填入 `fec=20:3`。<br>注意：D + R 的总数最大值为 255，不能超过这个数。<br>冒号两侧任意一个值为 0 表示不使用该选项。两端的设置必须相同。|
+| \[listener\] | N/A |是<br>(仅限中继模式)|中继模式的标签，用于指定监听模式的 UDPHop 设置<br>该标签表示与客户端交互数据|
+| \[forwarder\] | N/A  |是<br>(仅限中继模式)|中继模式的标签，用于指定转运模式的 UDPHop 设置<br>该标签表示与服务端交互数据|
 
 #### 前向纠错 (FEC, Forward Error Correction)
 FEC 格式为 `fec=D:R`，其中 D 表示原始数据量，R 表示冗余数据量。D + R 的总数最大值为 255，不能超过这个数。
@@ -122,6 +124,9 @@ FEC 格式为 `fec=D:R`，其中 D 表示原始数据量，R 表示冗余数据�
 例如可以填入 `fec=20:4`，表示每发送 20 个数据包，就生成并发送 4 个冗余包。
 
 **提醒**：不建议 AEAD 加密模式的 OpenVPN 使用这项功能，因为此时的 OpenVPN 对于乱序数据包的容忍度极差，而 UDPHop 并不负责重新排序数据包，即使是 FEC 恢复的数据同样如此。
+
+#### 中继模式
+请参看[中继模式使用说明](docs/relay_mode_zh-hans.md).
 
 ### Log 文件
 在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就覆盖），将 IP 地址与端口写进去。

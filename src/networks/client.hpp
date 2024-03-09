@@ -36,7 +36,7 @@ class client_mode
 	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
 	void udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number);
 	void udp_forwarder_incoming_to_udp(std::weak_ptr<udp_mappings> udp_session_weak_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
-	void udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappings> udp_session_weak_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
+	void udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	bool get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
 	bool update_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
 	void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
@@ -44,8 +44,6 @@ class client_mode
 	void fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void fec_find_missings(udp_mappings *udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 
-	uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num);
-	uint32_t generate_token_number();
 	void cleanup_expiring_forwarders();
 	void cleanup_expiring_data_connections();
 	void loop_timeout_sessions();

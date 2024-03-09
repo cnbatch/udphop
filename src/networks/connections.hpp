@@ -39,6 +39,7 @@ constexpr uint16_t FEC_WAITS = 3u;	// second
 constexpr auto STUN_RESEND = std::chrono::seconds(30);
 constexpr auto FINDER_TIMEOUT_INTERVAL = std::chrono::seconds(1);
 constexpr auto CHANGEPORT_UPDATE_INTERVAL = std::chrono::seconds(1);
+constexpr auto KEEP_ALIVE_UPDATE_INTERVAL = std::chrono::seconds(1);
 constexpr auto EXPRING_UPDATE_INTERVAL = std::chrono::seconds(2);
 const asio::ip::udp::endpoint local_empty_target_v4(asio::ip::make_address_v4("127.0.0.1"), 70);
 const asio::ip::udp::endpoint local_empty_target_v6(asio::ip::make_address_v6("::1"), 70);
@@ -400,7 +401,19 @@ struct udp_mappings
 	alignas(64) std::atomic<int64_t> changeport_timestamp;
 	fec_control_data fec_ingress_control;
 	fec_control_data fec_egress_control;
+	alignas(64) std::atomic<int64_t> keep_alive_ingress_timestamp{ std::numeric_limits<int64_t>::max() };
+	alignas(64) std::atomic<int64_t> keep_alive_egress_timestamp{ std::numeric_limits<int64_t>::max() };
+	alignas(64) std::atomic<int64_t> last_ingress_receive_time{ std::numeric_limits<int64_t>::max() };
+	alignas(64) std::atomic<int64_t> last_inress_send_time{ std::numeric_limits<int64_t>::max() };
+	alignas(64) std::atomic<int64_t> last_egress_receive_time{ std::numeric_limits<int64_t>::max() };
+	alignas(64) std::atomic<int64_t> last_egress_send_time{ std::numeric_limits<int64_t>::max() };
 };
+
+int64_t time_gap_of_ingress_receive(udp_mappings *ptr);
+int64_t time_gap_of_ingress_send(udp_mappings *ptr);
+int64_t time_gap_of_egress_receive(udp_mappings *ptr);
+int64_t time_gap_of_egress_send(udp_mappings *ptr);
+
 
 std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
 std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);

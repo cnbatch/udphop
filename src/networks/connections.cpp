@@ -153,8 +153,25 @@ void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, 
 	return;
 }
 
+int64_t time_gap_of_ingress_receive(udp_mappings *ptr)
+{
+	return calculate_difference(right_now(), ptr->last_ingress_receive_time.load());
+}
 
+int64_t time_gap_of_ingress_send(udp_mappings *ptr)
+{
+	return calculate_difference(right_now(), ptr->last_inress_send_time.load());
+}
 
+int64_t time_gap_of_egress_receive(udp_mappings *ptr)
+{
+	return calculate_difference(right_now(), ptr->last_egress_receive_time.load());
+}
+
+int64_t time_gap_of_egress_send(udp_mappings *ptr)
+{
+	return calculate_difference(right_now(), ptr->last_inress_send_time.load());
+}
 
 
 void udp_server::continue_receive()

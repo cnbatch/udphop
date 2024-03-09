@@ -113,6 +113,8 @@ encryption_algorithm=AES-GCM
 | log_path            | Directory for storing logs | No  | Should point to a directory, not a file itself. If not needed, remove this line |
 | ipv4_only           | yes<br>true<br>1<br>no<br>false<br>0 | No | If IPv6 is disabled on the system, enable this option and set to yes, true, or 1 |
 | fec                 | uint8:uint8         | No       | Format is `fec=D:R`, for example `fec=20:3`. The total of D + R cannot exceed 255. If one side is set to 0, it means this option is not used. Both ends must have the same settings |
+| \[listener\] | N/A |Yes<br>(Relay Mode only)|Section Name of Relay Mode, UDPHop settings for specifying the listening mode<br>This tag represents data exchanged with the client|
+| \[forwarder\] | N/A  |Yes<br>(Relay Mode only)|Section Name of Relay Mode, UDPHop settings for specifying the forwarding mode<br>This tag represents data exchanged with the server|
 
 #### FEC (Forward Error Correction)
 FEC format is `fec=D:R`, where D represents the original data quantity, and R represents the redundancy data quantity. The total of D + R cannot exceed 255.
@@ -120,6 +122,9 @@ FEC format is `fec=D:R`, where D represents the original data quantity, and R re
 For example, you can input `fec=20:4`, which means for every 20 data packets sent, 4 redundant packets are generated and sent.
 
 **Reminder**: It is not recommended for OpenVPN using AEAD encryption mode to use this feature, because OpenVPN's tolerance for out-of-order packets is very poor under this circumstance, and UDPHop is not responsible for reordering packets, even for FEC-recovered data.
+
+#### 中继模式
+Please refer to [The Usage of Relay Mode](docs/relay_mode_en.md).
 
 ### Log Files
 After obtaining the punched IP address and port for the first time, and when there is a change in the punched IP address and port, an `ip_address.txt` file will be created in the Log directory (overwriting if it already exists), with the IP address and port written into it.

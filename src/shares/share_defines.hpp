@@ -15,7 +15,7 @@
 
 constexpr std::string_view app_name = "udphop";
 
-enum class running_mode { unknow, empty, server, client };
+enum class running_mode { unknow, empty, server, client, relay, relay_ingress, relay_egress };
 enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };
 namespace constant_values
 {
@@ -59,6 +59,8 @@ struct user_settings
 	std::filesystem::path log_directory;
 	std::filesystem::path log_ip_address;
 	std::filesystem::path log_messages;
+	std::shared_ptr<user_settings> ingress;
+	std::shared_ptr<user_settings> egress;
 };
 
 #pragma pack (push, 1)
@@ -70,6 +72,9 @@ struct fec_container
 #pragma pack(pop)
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
+
+uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num);
+uint32_t generate_token_number();
 
 int64_t calculate_difference(int64_t number1, int64_t number2);
 std::string time_to_string();

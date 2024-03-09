@@ -11,12 +11,13 @@
 #include "networks/connections.hpp"
 #include "networks/client.hpp"
 #include "networks/server.hpp"
+#include "networks/relay.hpp"
 
 int main(int argc, char *argv[])
 {
 	if (argc <= 1)
 	{
-		printf("%.*s version 20240302\n", (int)app_name.length(), app_name.data());
+		printf("%.*s version 20240309\n", (int)app_name.length(), app_name.data());
 		printf("Usage: %.*s config1.conf\n", (int)app_name.length(), app_name.data());
 		printf("       %.*s config1.conf config2.conf...\n", (int)app_name.length(), app_name.data());
 		return 0;
@@ -39,6 +40,7 @@ int main(int argc, char *argv[])
 	asio::io_context network_io{ io_thread_count };
 
 	std::vector<client_mode> clients;
+	std::vector<relay_mode> relays;
 	std::vector<server_mode> servers;
 	std::vector<user_settings> profile_settings;
 
@@ -86,6 +88,9 @@ int main(int argc, char *argv[])
 		case running_mode::client:
 			clients.emplace_back(client_mode(ioc, network_io, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
+		case running_mode::relay:
+			relays.emplace_back(relay_mode(ioc, network_io, task_groups_local, task_groups_peer, task_count_limit, settings));
+			break;
 		case running_mode::server:
 			servers.emplace_back(server_mode(ioc, network_io, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
@@ -95,6 +100,7 @@ int main(int argc, char *argv[])
 	}
 
 	std::cout << "Servers: " << servers.size() << "\n";
+	std::cout << "Relays: " << relays.size() << "\n";
 	std::cout << "Clients: " << clients.size() << "\n";
 
 	bool started_up = true;
@@ -104,6 +110,11 @@ int main(int argc, char *argv[])
 		started_up = server.start() && started_up;
 	}
 	
+	for (relay_mode &relay : relays)
+	{
+		started_up = relay.start() && started_up;
+	}
+
 	for (client_mode &client : clients)
 	{
 		started_up = client.start() && started_up;
