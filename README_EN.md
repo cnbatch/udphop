@@ -112,6 +112,7 @@ encryption_algorithm=AES-GCM
 | stun_server         | STUN server address  | No       | Cannot be used when listen_port is in port range mode |
 | log_path            | Directory for storing logs | No  | Should point to a directory, not a file itself. If not needed, remove this line |
 | ipv4_only           | yes<br>true<br>1<br>no<br>false<br>0 | No | If IPv6 is disabled on the system, enable this option and set to yes, true, or 1 |
+| ipv6_only | yes<br>true<br>1<br>no<br>false<br>0 |No|Ignore IPv4 address|
 | fec                 | uint8:uint8         | No       | Format is `fec=D:R`, for example `fec=20:3`. The total of D + R cannot exceed 255. If one side is set to 0, it means this option is not used. Both ends must have the same settings |
 | \[listener\] | N/A |Yes<br>(Relay Mode only)|Section Name of Relay Mode, UDPHop settings for specifying the listening mode<br>This tag represents data exchanged with the client|
 | \[forwarder\] | N/A  |Yes<br>(Relay Mode only)|Section Name of Relay Mode, UDPHop settings for specifying the forwarding mode<br>This tag represents data exchanged with the server|

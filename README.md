@@ -114,6 +114,7 @@ encryption_algorithm=AES-GCM
 | stun_server          | STUN 服务器地址     |否    |listen_port 为端口范围模式时不可使用|
 | log_path             | 存放 Log 的目录     |否    |不能指向文件本身|
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |否|若系统禁用了 IPv6，须启用该选项并设为 yes 或 true 或 1|
+| ipv6_only | yes<br>true<br>1<br>no<br>false<br>0 |否|忽略 IPv4 地址|
 | fec                  | uint8:uint8        |否    |格式为 `fec=D:R`，例如可以填入 `fec=20:3`。<br>注意：D + R 的总数最大值为 255，不能超过这个数。<br>冒号两侧任意一个值为 0 表示不使用该选项。两端的设置必须相同。|
 | \[listener\] | N/A |是<br>(仅限中继模式)|中继模式的标签，用于指定监听模式的 UDPHop 设置<br>该标签表示与客户端交互数据|
 | \[forwarder\] | N/A  |是<br>(仅限中继模式)|中继模式的标签，用于指定转运模式的 UDPHop 设置<br>该标签表示与服务端交互数据|

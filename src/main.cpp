@@ -17,7 +17,7 @@ int main(int argc, char *argv[])
 {
 	if (argc <= 1)
 	{
-		printf("%.*s version 20240309\n", (int)app_name.length(), app_name.data());
+		printf("%.*s version 20240316\n", (int)app_name.length(), app_name.data());
 		printf("Usage: %.*s config1.conf\n", (int)app_name.length(), app_name.data());
 		printf("       %.*s config1.conf config2.conf...\n", (int)app_name.length(), app_name.data());
 		return 0;

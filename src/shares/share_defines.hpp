@@ -17,6 +17,8 @@ constexpr std::string_view app_name = "udphop";
 
 enum class running_mode { unknow, empty, server, client, relay, relay_ingress, relay_egress };
 enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };
+enum class ip_only_options : unsigned short { not_set = 0, ipv4 = 1, ipv6 = 2 };
+
 namespace constant_values
 {
 	constexpr uint16_t dport_refresh_default = 60;
@@ -25,6 +27,51 @@ namespace constant_values
 	constexpr int iv_checksum_block_size = 2;
 	constexpr int encryption_block_reserve = 48;
 	constexpr int fec_container_header = 2;
+}
+
+inline constexpr ip_only_options
+operator&(ip_only_options option_1, ip_only_options option_2)
+{
+	return static_cast<ip_only_options>(static_cast<uint8_t>(option_1) & static_cast<uint8_t>(option_2));
+}
+
+inline constexpr ip_only_options
+operator|(ip_only_options option_1, ip_only_options option_2)
+{
+	return static_cast<ip_only_options>(static_cast<uint8_t>(option_1) | static_cast<uint8_t>(option_2));
+}
+
+inline constexpr ip_only_options
+operator^(ip_only_options option_1, ip_only_options option_2)
+{
+	return static_cast<ip_only_options>(static_cast<uint8_t>(option_1) ^ static_cast<uint8_t>(option_2));
+}
+
+inline constexpr ip_only_options
+operator~(ip_only_options input_option)
+{
+	return static_cast<ip_only_options>(~static_cast<int>(input_option));
+}
+
+inline ip_only_options &
+operator&=(ip_only_options &option_1, ip_only_options option_2)
+{
+	option_1 = option_1 & option_2;
+	return option_1;
+}
+
+inline ip_only_options &
+operator|=(ip_only_options &option_1, ip_only_options option_2)
+{
+	option_1 = option_1 | option_2;
+	return option_1;
+}
+
+inline ip_only_options &
+operator^=(ip_only_options &option_1, ip_only_options option_2)
+{
+	option_1 = option_1 ^ option_2;
+	return option_1;
 }
 
 template<typename T>
@@ -51,7 +98,7 @@ struct user_settings
 	uint8_t fec_redundant = 0;
 	encryption_mode encryption = encryption_mode::empty;
 	running_mode mode = running_mode::empty;
-	bool ipv4_only = false;
+	ip_only_options ip_version_only = ip_only_options::not_set;
 	std::string listen_on;
 	std::string destination_address;
 	std::string encryption_password;

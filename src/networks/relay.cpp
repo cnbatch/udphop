@@ -179,7 +179,7 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 	try
 	{
 		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_session_ptr, udp_func, current_settings.egress->ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_session_ptr, udp_func, current_settings.egress->ip_version_only);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -580,15 +580,12 @@ void relay_mode::cleanup_expiring_data_connections()
 		uint32_t iden = udp_session_ptr->wrapper_ptr->get_iden();
 		int64_t time_elapsed = calculate_difference(time_right_now, expire_time);
 
+		if (time_elapsed > CLEANUP_WAITS / 2 &&
+			udp_session_ptr->egress_forwarder != nullptr)
+			udp_session_ptr->egress_forwarder->stop();
+
 		if (time_elapsed <= CLEANUP_WAITS)
 			continue;
-
-		if (time_elapsed < CLEANUP_WAITS)
-		{
-			if (udp_session_ptr->egress_forwarder != nullptr)
-				udp_session_ptr->egress_forwarder->stop();
-			continue;
-		}
 
 		expiring_udp_sessions.erase(iter);
 	}
@@ -690,7 +687,7 @@ void relay_mode::send_stun_request(const asio::error_code & e)
 	if (current_settings.ingress->stun_server.empty())
 		return;
 
-	resend_stun_8489_request(*udp_servers.begin()->second, current_settings.ingress->stun_server, stun_header.get(), current_settings.ingress->ipv4_only);
+	resend_stun_8489_request(*udp_servers.begin()->second, current_settings.ingress->stun_server, stun_header.get(), current_settings.ingress->ip_version_only);
 
 	timer_stun.expires_after(STUN_RESEND);
 	timer_stun.async_wait([this](const asio::error_code &e) { send_stun_request(e); });
@@ -735,7 +732,7 @@ void relay_mode::change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr)
 	try
 	{
 		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_mappings_ptr, udp_func, current_settings.egress->ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_mappings_ptr, udp_func, current_settings.egress->ip_version_only);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -764,7 +761,7 @@ void relay_mode::change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr)
 	std::vector<uint8_t> keep_alive_packet = create_empty_data(current_settings.egress->encryption_password, current_settings.egress->encryption, EMPTY_PACKET_SIZE);
 	udp_mappings_ptr->wrapper_ptr->write_iden(keep_alive_packet.data());
 
-	if (current_settings.egress->ipv4_only)
+	if (current_settings.egress->ip_version_only == ip_only_options::ipv4)
 		new_forwarder->send_out(std::move(keep_alive_packet), local_empty_target_v4, ec);
 	else
 		new_forwarder->send_out(std::move(keep_alive_packet), local_empty_target_v6, ec);
@@ -833,7 +830,7 @@ bool relay_mode::start()
 	}
 
 	udp::endpoint listen_on_ep;
-	if (current_settings.ingress->ipv4_only)
+	if (current_settings.ingress->ip_version_only == ip_only_options::ipv4)
 		listen_on_ep = udp::endpoint(udp::v4(), *listen_ports.begin());
 	else
 		listen_on_ep = udp::endpoint(udp::v6(), *listen_ports.begin());
@@ -850,7 +847,7 @@ bool relay_mode::start()
 			return false;
 		}
 
-		if (local_address.is_v4() && !current_settings.ingress->ipv4_only)
+		if (local_address.is_v4() && current_settings.ingress->ip_version_only == ip_only_options::not_set)
 			listen_on_ep.address(asio::ip::make_address_v6(asio::ip::v4_mapped, local_address.to_v4()));
 		else
 			listen_on_ep.address(local_address);
@@ -886,7 +883,7 @@ bool relay_mode::start()
 
 		if (!current_settings.stun_server.empty())
 		{
-			stun_header = send_stun_8489_request(*udp_servers.begin()->second, current_settings.ingress->stun_server, current_settings.ingress->ipv4_only);
+			stun_header = send_stun_8489_request(*udp_servers.begin()->second, current_settings.ingress->stun_server, current_settings.ingress->ip_version_only);
 			timer_stun.expires_after(std::chrono::seconds(1));
 			timer_stun.async_wait([this](const asio::error_code &e) { send_stun_request(e); });
 		}

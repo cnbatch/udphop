@@ -26,7 +26,7 @@ bool client_mode::start()
 		return false;
 
 	udp::endpoint listen_on_ep;
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 		listen_on_ep = udp::endpoint(udp::v4(), port_number);
 	else
 		listen_on_ep = udp::endpoint(udp::v6(), port_number);
@@ -43,7 +43,7 @@ bool client_mode::start()
 			return false;
 		}
 
-		if (local_address.is_v4() && !current_settings.ipv4_only)
+		if (local_address.is_v4() && current_settings.ip_version_only == ip_only_options::not_set)
 			listen_on_ep.address(asio::ip::make_address_v6(asio::ip::v4_mapped, local_address.to_v4()));
 		else
 			listen_on_ep.address(local_address);
@@ -140,7 +140,7 @@ void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 	try
 	{
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_session_ptr, udp_func, current_settings.ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_session_ptr, udp_func, current_settings.ip_version_only);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -435,16 +435,13 @@ void client_mode::cleanup_expiring_forwarders()
 
 		int64_t time_elapsed = calculate_difference(time_right_now, expire_time);
 
-		if (time_elapsed <= CLEANUP_WAITS / 2)
-			continue;
-
-		if (time_elapsed > CLEANUP_WAITS / 2 && time_elapsed < CLEANUP_WAITS)
-		{
+		if (time_elapsed > CLEANUP_WAITS / 2 &&
+			forwarder_ptr != nullptr)
 			forwarder_ptr->stop();
-			continue;
-		}
 
-		forwarder_ptr->disconnect();
+		if (time_elapsed <= CLEANUP_WAITS)
+			continue;
+
 		expiring_forwarders.erase(iter);
 	}
 }
@@ -558,7 +555,7 @@ void client_mode::change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr
 	try
 	{
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_mappings_ptr, udp_func, current_settings.ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_mappings_ptr, udp_func, current_settings.ip_version_only);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -587,7 +584,7 @@ void client_mode::change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr
 	std::vector<uint8_t> keep_alive_packet = create_empty_data(current_settings.encryption_password, current_settings.encryption, EMPTY_PACKET_SIZE);
 	udp_mappings_ptr->wrapper_ptr->write_iden(keep_alive_packet.data());
 
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 		new_forwarder->send_out(std::move(keep_alive_packet), local_empty_target_v4, ec);
 	else
 		new_forwarder->send_out(std::move(keep_alive_packet), local_empty_target_v6, ec);
