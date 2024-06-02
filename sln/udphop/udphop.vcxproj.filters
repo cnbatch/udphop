@@ -63,6 +63,9 @@
     <ClCompile Include="..\..\src\3rd_party\fecpp_ssse3.cpp">
       <Filter>Source Files\3rd_party</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\networks\relay.cpp">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\shares\share_defines.hpp">
@@ -100,6 +103,9 @@
     </ClInclude>
     <ClInclude Include="..\..\src\3rd_party\fecpp.hpp">
       <Filter>Header Files\3rd_party</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\networks\relay.hpp">
+      <Filter>Header Files\networks</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

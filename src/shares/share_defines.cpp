@@ -7,6 +7,9 @@
 #include "share_defines.hpp"
 #include "configurations.hpp"
 #include "string_utils.hpp"
+#ifdef __cpp_lib_format
+#include <format>
+#endif
 
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg)
@@ -107,6 +110,20 @@ void print_message_to_file(const std::string &message, const std::filesystem::pa
 	static std::mutex mtx;
 	std::unique_lock locker{ mtx };
 	output_file.open(log_file, std::ios::out | std::ios::app);
+	if (output_file.is_open() && output_file.good())
+		output_file << message;
+	output_file.close();
+}
+
+void print_status_to_file(const std::string & message, const std::filesystem::path & log_file)
+{
+	if (log_file.empty())
+		return;
+
+	static std::ofstream output_file{};
+	static std::mutex mtx;
+	std::unique_lock locker{ mtx };
+	output_file.open(log_file, std::ios::out | std::ios::trunc);
 	if (output_file.is_open() && output_file.good())
 		output_file << message;
 	output_file.close();

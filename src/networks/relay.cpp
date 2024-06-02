@@ -511,7 +511,7 @@ void relay_mode::fec_find_missings_via_listener(std::shared_ptr<udp_mappings> ud
 		{
 			data_sender_via_forwarder(udp_session_ptr, std::move(data), data_size);
 		};
-	fec_find_missings(udp_session_ptr, fec_controllor, fec_sn, max_fec_data_count, data_sender);
+	fec_recovery_count_ingress += fec_find_missings(udp_session_ptr, fec_controllor, fec_sn, max_fec_data_count, data_sender);
 }
 
 void relay_mode::fec_find_missings_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count)
@@ -520,12 +520,13 @@ void relay_mode::fec_find_missings_via_forwarder(std::shared_ptr<udp_mappings> u
 		{
 		data_sender_via_listener(udp_session_ptr.get(), udp_session_ptr->ingress_source_endpoint, std::move(data), data_size);
 		};
-	fec_find_missings(udp_session_ptr, fec_controllor, fec_sn, max_fec_data_count, data_sender);
+	fec_recovery_count_egress += fec_find_missings(udp_session_ptr, fec_controllor, fec_sn, max_fec_data_count, data_sender);
 }
 
-void relay_mode::fec_find_missings(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count,
+size_t relay_mode::fec_find_missings(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count,
 	std::function<void(std::shared_ptr<udp_mappings>, std::unique_ptr<uint8_t[]>, size_t)> sender_func)
 {
+	size_t fec_recovery_count = 0;
 	for (auto iter = fec_controllor.fec_rcv_cache.begin(), next_iter = iter; iter != fec_controllor.fec_rcv_cache.end(); iter = next_iter)
 	{
 		++next_iter;
@@ -561,10 +562,13 @@ void relay_mode::fec_find_missings(std::shared_ptr<udp_mappings> udp_session_ptr
 			std::unique_ptr<uint8_t[]> new_data = std::make_unique<uint8_t[]>(missed_data_size + BUFFER_EXPAND_SIZE);
 			std::copy(missed_data_ptr, missed_data_ptr + missed_data_size, new_data.get());
 			sender_func(udp_session_ptr, std::move(new_data), missed_data_size);
+			fec_recovery_count++;
 		}
 
 		fec_controllor.fec_rcv_restored.insert(sn);
 	}
+
+	return fec_recovery_count;
 }
 
 void relay_mode::cleanup_expiring_data_connections()
@@ -805,6 +809,35 @@ void relay_mode::keep_alive_egress(const asio::error_code & e)
 	timer_keep_alive_egress.async_wait([this](const asio::error_code &e) { keep_alive_egress(e); });
 }
 
+void relay_mode::log_status(const asio::error_code & e)
+{
+	if (e == asio::error::operation_aborted)
+		return;
+
+	loop_get_status();
+
+	timer_status_log.expires_after(LOGGING_GAP);
+	timer_status_log.async_wait([this](const asio::error_code& e) { log_status(e); });
+}
+
+void relay_mode::loop_get_status()
+{
+	std::string output_text = time_to_string_with_square_brackets() + "Summary of " + current_settings.config_filename + "\n";
+#ifdef __cpp_lib_format
+	output_text += std::format("[Client <-> This] FEC recover: {}\t [This <-> Remote] FEC recover: {}\n",
+		fec_recovery_count_ingress.exchange(0), fec_recovery_count_egress.exchange(0));
+#else
+	std::ostringstream oss;
+	oss << "[Client <-> This] FEC recover: " << fec_recovery_count_ingress.exchange(0) <<
+		"\t [This <-> Remote] FEC recover: " << fec_recovery_count_egress.exchange(0) << "\n";
+	output_text += oss.str();
+#endif
+
+	if (!current_settings.log_status.empty())
+		print_status_to_file(output_text, current_settings.log_status);
+	std::cout << output_text << std::endl;
+}
+
 relay_mode::~relay_mode()
 {
 	timer_expiring_sessions.cancel();
@@ -812,11 +845,12 @@ relay_mode::~relay_mode()
 	timer_stun.cancel();
 	timer_keep_alive_ingress.cancel();
 	timer_keep_alive_egress.cancel();
+	timer_status_log.cancel();
 }
 
 bool relay_mode::start()
 {
-	printf("%.*s is running in relay mode\n", (int)app_name.length(), app_name.data());
+	std::cout << app_name << " is running in relay mode\n";
 
 	udp_callback_t func = std::bind(&relay_mode::udp_listener_incoming, this, _1, _2, _3, _4);
 	std::set<uint16_t> listen_ports;
@@ -897,6 +931,12 @@ bool relay_mode::start()
 		{
 			timer_keep_alive_egress.expires_after(KEEP_ALIVE_UPDATE_INTERVAL);
 			timer_keep_alive_egress.async_wait([this](const asio::error_code& e) { keep_alive_egress(e); });
+		}
+
+		if (!current_settings.log_status.empty())
+		{
+			timer_status_log.expires_after(LOGGING_GAP);
+			timer_status_log.async_wait([this](const asio::error_code& e) { log_status(e); });
 		}
 	}
 	catch (std::exception &ex)

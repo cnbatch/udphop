@@ -112,6 +112,51 @@ public:
 	}
 };
 
+void xor_forward(uint8_t *data, size_t data_size);
+void xor_forward(std::vector<uint8_t> &data);
+void xor_backward(uint8_t *data, size_t data_size);
+void xor_backward(std::vector<uint8_t> &data);
+
+void xor_forward(uint8_t *data, size_t data_size)
+{
+	for (auto ptr = data, next = ptr + 1;
+		next < data + data_size;
+		++ptr, ++next)
+	{
+		*ptr ^= *next;
+	}
+}
+
+void xor_forward(std::vector<uint8_t> &data)
+{
+	for (auto iter = data.begin(), next = iter + 1;
+		next != data.end();
+		++iter, ++next)
+	{
+		*iter ^= *next;
+	}
+}
+
+void xor_backward(uint8_t *data, size_t data_size)
+{
+	for (auto ptr = data + data_size - 1, next = ptr - 1;
+		next >= data;
+		--ptr, --next)
+	{
+		*next ^= *ptr;
+	}
+}
+
+void xor_backward(std::vector<uint8_t> &data)
+{
+	for (auto iter = data.rbegin(), next = iter + 1;
+		next != data.rend();
+		++iter, ++next)
+	{
+		*next ^= *iter;
+	}
+}
+
 std::vector<uint8_t> create_empty_data(const std::string &password, encryption_mode mode, size_t mtu_size)
 {
 	std::vector<uint8_t> temp_array(mtu_size, 0);
@@ -128,6 +173,7 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 	if (length <= 0)
 		return { "empty data", 0 };
 
+	bool no_encryption = false;
 	size_t cipher_length = 0;
 	std::array<uint8_t, 2> iv_raw{};
 	std::string error_message;
@@ -163,12 +209,11 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 	}
 	default:
 	{
+		iv_raw[0] = simple_hashing::xor_u8(data_ptr, length);
+		iv_raw[1] = simple_hashing::checksum8(data_ptr, length);
 		cipher_length = length;
-		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, length);
-		uint8_t second_hash = simple_hashing::checksum8(data_ptr, length);
-		iv_raw[0] = ~first_hash;
-		iv_raw[1] = ~second_hash;
-		bitwise_not(data_ptr, cipher_length);
+		no_encryption = true;
+		//bitwise_not(data_ptr, cipher_length);
 		break;
 	}
 	};
@@ -180,11 +225,15 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 		cipher_length += constant_values::iv_checksum_block_size;
 	}
 
+	if (no_encryption)
+		xor_backward(data_ptr, cipher_length);
+
 	return { std::move(error_message), cipher_length };
 }
 
 std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode mode, const void *data_ptr, int length, std::string &error_message)
 {
+	bool no_encryption = false;
 	size_t cipher_length = length;
 	std::array<uint8_t, 2> iv_raw{};
 	std::vector<uint8_t> cipher_cache(length + constant_values::encryption_block_reserve + constant_values::iv_checksum_block_size);
@@ -229,13 +278,15 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	}
 	default:
 	{
-		cipher_length = length;
 		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, length);
 		uint8_t second_hash = simple_hashing::checksum8(data_ptr, length);
-		iv_raw[0] = ~first_hash;
-		iv_raw[1] = ~second_hash;
+		cipher_length = length;
+		no_encryption = true;
+		//iv_raw[0] = ~first_hash;
+		//iv_raw[1] = ~second_hash;
 		cipher_cache.resize(cipher_length + constant_values::iv_checksum_block_size);
-		std::transform((const uint8_t *)data_ptr, (const uint8_t *)data_ptr + length, cipher_cache.begin(), [](auto ch) { return ~ch; });
+		std::copy_n((const uint8_t *)data_ptr, length, cipher_cache.begin());
+		//std::transform((const uint8_t *)data_ptr, (const uint8_t *)data_ptr + length, cipher_cache.begin(), [](auto ch) { return ~ch; });
 		break;
 	}
 	};
@@ -246,11 +297,15 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 		cipher_cache[cipher_length + 1] = iv_raw[1];
 	}
 
+	if (no_encryption)
+		xor_backward(cipher_cache);
+
 	return cipher_cache;
 }
 
 std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode mode, std::vector<uint8_t> &&input_data, std::string &error_message)
 {
+	bool no_encryption = false;
 	std::array<uint8_t, 2> iv_raw{};
 	switch (mode)
 	{
@@ -292,11 +347,14 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	}
 	default:
 	{
-		uint8_t first_hash = simple_hashing::xor_u8(input_data.data(), input_data.size());
-		uint8_t second_hash = simple_hashing::checksum8(input_data.data(), input_data.size());
-		iv_raw[0] = ~first_hash;
-		iv_raw[1] = ~second_hash;
-		std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
+		iv_raw[0] = simple_hashing::xor_u8(input_data.data(), input_data.size());
+		iv_raw[1] = simple_hashing::checksum8(input_data.data(), input_data.size());
+		no_encryption = true;
+		//uint8_t first_hash = simple_hashing::xor_u8(input_data.data(), input_data.size());
+		//uint8_t second_hash = simple_hashing::checksum8(input_data.data(), input_data.size());
+		//iv_raw[0] = ~first_hash;
+		//iv_raw[1] = ~second_hash;
+		//std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
 		break;
 	}
 	};
@@ -305,6 +363,9 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	input_data.resize(cipher_length + constant_values::iv_checksum_block_size);
 	input_data[cipher_length] = iv_raw[0];
 	input_data[cipher_length + 1] = iv_raw[1];
+
+	if (no_encryption)
+		xor_backward(input_data);
 
 	return input_data;
 }
@@ -354,7 +415,8 @@ std::pair<std::string, size_t> decrypt_data(const std::string &password, encrypt
 	}
 	default:
 	{
-		bitwise_not(data_ptr, length);
+		xor_forward(data_ptr, length);
+		//bitwise_not(data_ptr, length);
 		data_length = length - constant_values::iv_checksum_block_size;
 		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, data_length);
 		uint8_t second_hash = simple_hashing::checksum8(data_ptr, data_length);
@@ -414,14 +476,19 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	}
 	default:
 	{
-		std::transform(data_cache.begin(), data_cache.end(), data_cache.begin(), [](auto ch) { return ~ch; });
-		iv_raw[0] = ~iv_raw[0];
-		iv_raw[1] = ~iv_raw[1];
+		data_cache.resize(length);
+		std::copy_n((const uint8_t *)data_ptr, length, data_cache.begin());
+		xor_forward(data_cache);
+		iv_raw[0] = data_cache[length - 2];
+		iv_raw[1] = data_cache[length - 1];
+		data_cache.resize(data_length);
+		//std::transform(data_cache.begin(), data_cache.end(), data_cache.begin(), [](auto ch) { return ~ch; });
+		//iv_raw[0] = ~iv_raw[0];
+		//iv_raw[1] = ~iv_raw[1];
 		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, data_length);
 		uint8_t second_hash = simple_hashing::checksum8(data_ptr, data_length);
 		if (first_hash != iv_raw[0] || second_hash != iv_raw[1])
 			error_message = "Checksum incorrect";
-		data_cache.resize(data_length);
 		break;
 	}
 	};
@@ -482,9 +549,12 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	}
 	default:
 	{
-		std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
-		iv_raw[0] = ~iv_raw[0];
-		iv_raw[1] = ~iv_raw[1];
+		xor_forward(input_data);
+		iv_raw[0] = input_data[input_data.size() - 2];
+		iv_raw[1] = input_data[input_data.size() - 1];
+		//std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
+		//iv_raw[0] = ~iv_raw[0];
+		//iv_raw[1] = ~iv_raw[1];
 		uint8_t first_hash = simple_hashing::xor_u8(input_data.data(), input_data.size());
 		uint8_t second_hash = simple_hashing::checksum8(input_data.data(), input_data.size());
 		if (first_hash != iv_raw[0] || second_hash != iv_raw[1])
@@ -496,26 +566,26 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	return input_data;
 }
 
-void bitwise_not(uint8_t *input_data, size_t length)
-{
-	if (length < sizeof(uint64_t) * 2)
-	{
-		std::transform(input_data, input_data + length, input_data, [](auto ch) { return ~ch; });
-	}
-	else
-	{
-		uint64_t *pos_ptr = (uint64_t *)input_data;
-		for (; pos_ptr + 1 < (uint64_t *)(input_data + length); pos_ptr++)
-		{
-			*pos_ptr = ~(*pos_ptr);
-		}
-
-		for (uint8_t *ending_ptr = (uint8_t *)pos_ptr; ending_ptr < input_data + length; ending_ptr++)
-		{
-			*ending_ptr = ~(*ending_ptr);
-		}
-	}
-}
+//void bitwise_not(uint8_t *input_data, size_t length)
+//{
+//	if (length < sizeof(uint64_t) * 2)
+//	{
+//		std::transform(input_data, input_data + length, input_data, [](auto ch) { return ~ch; });
+//	}
+//	else
+//	{
+//		uint64_t *pos_ptr = (uint64_t *)input_data;
+//		for (; pos_ptr + 1 < (uint64_t *)(input_data + length); pos_ptr++)
+//		{
+//			*pos_ptr = ~(*pos_ptr);
+//		}
+//
+//		for (uint8_t *ending_ptr = (uint8_t *)pos_ptr; ending_ptr < input_data + length; ending_ptr++)
+//		{
+//			*ending_ptr = ~(*ending_ptr);
+//		}
+//	}
+//}
 
 std::pair<std::unique_ptr<uint8_t[]>, size_t> clone_into_pair(const uint8_t *original, size_t data_size)
 {

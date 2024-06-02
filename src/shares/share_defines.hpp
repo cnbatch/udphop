@@ -11,6 +11,9 @@
 #include <map>
 #include <random>
 #include <filesystem>
+#ifdef __cpp_lib_format
+#include <format>
+#endif
 #include "aead.hpp"
 
 constexpr std::string_view app_name = "udphop";
@@ -106,6 +109,8 @@ struct user_settings
 	std::filesystem::path log_directory;
 	std::filesystem::path log_ip_address;
 	std::filesystem::path log_messages;
+	std::filesystem::path log_status;
+	std::string config_filename;
 	std::shared_ptr<user_settings> ingress;
 	std::shared_ptr<user_settings> egress;
 };
@@ -128,5 +133,6 @@ std::string time_to_string();
 std::string time_to_string_with_square_brackets();
 void print_ip_to_file(const std::string &message, const std::filesystem::path &log_file);
 void print_message_to_file(const std::string &message, const std::filesystem::path &log_file);
+void print_status_to_file(const std::string &message, const std::filesystem::path &log_file);
 
 #endif // !_SHARE_HEADER_

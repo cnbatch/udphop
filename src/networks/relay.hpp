@@ -36,11 +36,14 @@ class relay_mode
 	asio::steady_timer timer_stun;
 	asio::steady_timer timer_keep_alive_ingress;
 	asio::steady_timer timer_keep_alive_egress;
+	asio::steady_timer timer_status_log;
 	ttp::task_group_pool &sequence_task_pool_local;
 	ttp::task_group_pool &sequence_task_pool_peer;
 	const size_t task_limit;
 
 	std::unique_ptr<udp::endpoint> udp_target;
+	std::atomic<size_t> fec_recovery_count_ingress;
+	std::atomic<size_t> fec_recovery_count_egress;
 
 	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number);
 	void udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, const udp::endpoint &peer, asio::ip::port_type port_number);
@@ -61,7 +64,7 @@ class relay_mode
 	void fec_maker_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void fec_find_missings_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 	void fec_find_missings_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
-	void fec_find_missings(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count,
+	size_t fec_find_missings(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count,
 		std::function<void(std::shared_ptr<udp_mappings>, std::unique_ptr<uint8_t[]>, size_t)> sender_func);
 
 	void cleanup_expiring_data_connections();
@@ -74,6 +77,8 @@ class relay_mode
 	void change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr);
 	void keep_alive_ingress(const asio::error_code& e);
 	void keep_alive_egress(const asio::error_code& e);
+	void log_status(const asio::error_code &e);
+	void loop_get_status();
 
 public:
 	relay_mode() = delete;
@@ -88,6 +93,7 @@ public:
 		timer_stun(io_context),
 		timer_keep_alive_ingress(io_context),
 		timer_keep_alive_egress(io_context),
+		timer_status_log(io_context),
 		sequence_task_pool_local(seq_task_pool_local),
 		sequence_task_pool_peer(seq_task_pool_peer),
 		task_limit(task_count_limit),
@@ -106,6 +112,7 @@ public:
 		timer_stun(std::move(existing_server.timer_stun)),
 		timer_keep_alive_ingress(std::move(existing_server.timer_keep_alive_ingress)),
 		timer_keep_alive_egress(std::move(existing_server.timer_keep_alive_egress)),
+		timer_status_log(std::move(existing_server.timer_status_log)),
 		sequence_task_pool_local(existing_server.sequence_task_pool_local),
 		sequence_task_pool_peer(existing_server.sequence_task_pool_peer),
 		task_limit(existing_server.task_limit),

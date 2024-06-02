@@ -31,11 +31,13 @@ class server_mode
 	asio::steady_timer timer_find_timeout;
 	asio::steady_timer timer_stun;
 	asio::steady_timer timer_keep_alive;
+	asio::steady_timer timer_status_log;
 	ttp::task_group_pool &sequence_task_pool_local;
 	ttp::task_group_pool &sequence_task_pool_peer;
 	const size_t task_limit;
 
 	std::unique_ptr<udp::endpoint> udp_target;
+	std::atomic<size_t> fec_recovery_count;
 
 	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number);
 	void udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, const udp::endpoint &peer, asio::ip::port_type port_number);
@@ -59,6 +61,8 @@ class server_mode
 	void find_expires(const asio::error_code &e);
 	void expiring_wrapper_loops(const asio::error_code &e);
 	void keep_alive(const asio::error_code& e);
+	void log_status(const asio::error_code &e);
+	void loop_get_status();
 
 public:
 	server_mode() = delete;
@@ -72,6 +76,7 @@ public:
 		timer_find_timeout(io_context),
 		timer_stun(io_context),
 		timer_keep_alive(io_context),
+		timer_status_log(io_context),
 		sequence_task_pool_local(seq_task_pool_local),
 		sequence_task_pool_peer(seq_task_pool_peer),
 		task_limit(task_count_limit),
@@ -89,6 +94,7 @@ public:
 		timer_find_timeout(std::move(existing_server.timer_find_timeout)),
 		timer_stun(std::move(existing_server.timer_stun)),
 		timer_keep_alive(std::move(existing_server.timer_keep_alive)),
+		timer_status_log(std::move(existing_server.timer_status_log)),
 		sequence_task_pool_local(existing_server.sequence_task_pool_local),
 		sequence_task_pool_peer(existing_server.sequence_task_pool_peer),
 		task_limit(existing_server.task_limit),

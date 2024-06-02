@@ -24,6 +24,7 @@
     <ClCompile Include="..\..\src\main.cpp" />
     <ClCompile Include="..\..\src\networks\client.cpp" />
     <ClCompile Include="..\..\src\networks\connections.cpp" />
+    <ClCompile Include="..\..\src\networks\relay.cpp" />
     <ClCompile Include="..\..\src\networks\server.cpp" />
     <ClCompile Include="..\..\src\networks\stun.cpp" />
     <ClCompile Include="..\..\src\shares\configurations.cpp" />
@@ -35,6 +36,7 @@
     <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp" />
     <ClInclude Include="..\..\src\networks\client.hpp" />
     <ClInclude Include="..\..\src\networks\connections.hpp" />
+    <ClInclude Include="..\..\src\networks\relay.hpp" />
     <ClInclude Include="..\..\src\networks\server.hpp" />
     <ClInclude Include="..\..\src\networks\stun.hpp" />
     <ClInclude Include="..\..\src\shares\aead.hpp" />

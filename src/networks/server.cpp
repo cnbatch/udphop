@@ -383,6 +383,7 @@ void server_mode::fec_find_missings(udp_mappings *udp_session_ptr, fec_control_d
 		{
 			auto [missed_data_ptr, missed_data_size] = extract_from_container(data);
 			udp_session_ptr->local_udp->async_send_out(std::move(data), missed_data_ptr, missed_data_size, *udp_target);
+			fec_recovery_count++;
 		}
 
 		fec_controllor.fec_rcv_restored.insert(sn);
@@ -493,6 +494,33 @@ void server_mode::keep_alive(const asio::error_code& e)
 	timer_keep_alive.async_wait([this](const asio::error_code &e) { keep_alive(e); });
 }
 
+void server_mode::log_status(const asio::error_code & e)
+{
+	if (e == asio::error::operation_aborted)
+		return;
+
+	loop_get_status();
+
+	timer_status_log.expires_after(LOGGING_GAP);
+	timer_status_log.async_wait([this](const asio::error_code& e) { log_status(e); });
+}
+
+void server_mode::loop_get_status()
+{
+	std::string output_text = time_to_string_with_square_brackets() + "Summary of " + current_settings.config_filename + "\n";
+#ifdef __cpp_lib_format
+	output_text += std::format("fec recovery: {}\n", fec_recovery_count.exchange(0));
+#else
+	std::ostringstream oss;
+	oss << "fec recovery: " << fec_recovery_count.exchange(0) << "\n";
+	output_text += oss.str();
+#endif
+
+	if (!current_settings.log_status.empty())
+		print_status_to_file(output_text, current_settings.log_status);
+	std::cout << output_text << std::endl;
+}
+
 void server_mode::send_stun_request(const asio::error_code &e)
 {
 	if (e == asio::error::operation_aborted)
@@ -513,11 +541,12 @@ server_mode::~server_mode()
 	timer_find_timeout.cancel();
 	timer_stun.cancel();
 	timer_keep_alive.cancel();
+	timer_status_log.cancel();
 }
 
 bool server_mode::start()
 {
-	printf("%.*s is running in server mode\n", (int)app_name.length(), app_name.data());
+	std::cout << app_name << " is running in server mode\n";
 
 	udp_callback_t func = std::bind(&server_mode::udp_listener_incoming, this, _1, _2, _3, _4);
 	std::set<uint16_t> listen_ports;
@@ -593,6 +622,12 @@ bool server_mode::start()
 		{
 			timer_keep_alive.expires_after(seconds{ current_settings.keep_alive });
 			timer_keep_alive.async_wait([this](const asio::error_code& e) { keep_alive(e); });
+		}
+
+		if (!current_settings.log_status.empty())
+		{
+			timer_status_log.expires_after(LOGGING_GAP);
+			timer_status_log.async_wait([this](const asio::error_code& e) { log_status(e); });
 		}
 	}
 	catch (std::exception &ex)

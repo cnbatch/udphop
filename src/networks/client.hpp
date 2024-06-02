@@ -25,10 +25,12 @@ class client_mode
 
 	std::shared_mutex mutex_target_address;
 	std::unique_ptr<asio::ip::address> target_address;
+	std::atomic<size_t> fec_recovery_count;
 
 	asio::steady_timer timer_find_timeout;
 	asio::steady_timer timer_expiring_sessions;
 	asio::steady_timer timer_keep_alive;
+	asio::steady_timer timer_status_log;
 	ttp::task_group_pool &sequence_task_pool_local;
 	ttp::task_group_pool &sequence_task_pool_peer;
 	const size_t task_limit;
@@ -52,6 +54,8 @@ class client_mode
 	void expiring_wrapper_loops(const asio::error_code &e);
 	void change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr);
 	void keep_alive(const asio::error_code &e);
+	void log_status(const asio::error_code &e);
+	void loop_get_status();
 
 public:
 	client_mode() = delete;
@@ -64,6 +68,7 @@ public:
 		timer_find_timeout(io_context),
 		timer_expiring_sessions(io_context),
 		timer_keep_alive(io_context),
+		timer_status_log(io_context),
 		sequence_task_pool_local(seq_task_pool_local),
 		sequence_task_pool_peer(seq_task_pool_peer),
 		task_limit(task_count_limit),
@@ -75,6 +80,7 @@ public:
 		timer_find_timeout(std::move(existing_client.timer_find_timeout)),
 		timer_expiring_sessions(std::move(existing_client.timer_expiring_sessions)),
 		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
+		timer_status_log(std::move(existing_client.timer_status_log)),
 		sequence_task_pool_local(existing_client.sequence_task_pool_local),
 		sequence_task_pool_peer(existing_client.sequence_task_pool_peer),
 		task_limit(existing_client.task_limit),
