@@ -20,6 +20,7 @@ class server_mode
 	const std::array<uint8_t, 16> zero_value_array;
 
 	std::unordered_map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
+	std::unordered_map<asio::ip::port_type, std::shared_ptr<udp_mappings>> udp_zero_sessions;
 
 	std::shared_mutex mutex_wrapper_channels;
 	std::unordered_map<uint32_t, std::shared_ptr<udp_mappings>> udp_session_channels;
@@ -39,11 +40,13 @@ class server_mode
 	std::unique_ptr<udp::endpoint> udp_target;
 	std::atomic<size_t> fec_recovery_count;
 
+	void make_nzero_sessions();
 	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number);
 	void udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, const udp::endpoint &peer, asio::ip::port_type port_number);
 	void udp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number, std::weak_ptr<udp_mappings> udp_session_ptr);
 
 	void udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number);
+	void udp_listener_response_test_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number);
 
 	bool create_new_udp_connection(std::unique_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer);
 
@@ -51,7 +54,8 @@ class server_mode
 	void save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_port, const std::array<uint8_t, 16> &ipv6_address, uint16_t ipv6_port);
 	void data_sender(udp_mappings *udp_session_ptr, const udp::endpoint &peer, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void data_sender(udp_mappings *udp_session_ptr, const udp::endpoint &peer, std::vector<uint8_t> &&data);
-	void fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	void fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	void fec_test_maker(std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void fec_find_missings(udp_mappings *udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 
 	void cleanup_expiring_data_connections();

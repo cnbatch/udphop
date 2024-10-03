@@ -22,7 +22,7 @@ void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpo
 
 namespace packet
 {
-	uint64_t htonll(uint64_t value)
+	uint64_t htonll(uint64_t value) noexcept
 	{
 		if constexpr (std::endian::native == std::endian::little)
 		{
@@ -34,22 +34,117 @@ namespace packet
 		else return value;
 	}
 
-	uint64_t ntohll(uint64_t value)
+	uint64_t ntohll(uint64_t value) noexcept
 	{
-		// The answer is 42
-		static const int num = 42;
-		uint64_t converted_value = value;
-
 		// Check the endianness
-		if (*reinterpret_cast<const char*>(&num) == num)
+		if constexpr (std::endian::native == std::endian::little)
 		{
 			const uint32_t high_part = ntohl(static_cast<uint32_t>(value >> 32));
 			const uint32_t low_part = ntohl(static_cast<uint32_t>(value & 0xFFFFFFFFLL));
-
-			converted_value = (static_cast<uint64_t>(low_part) << 32) | high_part;
+			uint64_t converted_value = (static_cast<uint64_t>(low_part) << 32) | high_part;
+			return converted_value;
 		}
+		else return value;
+	}
 
-		return converted_value;
+	int64_t htonll(int64_t value) noexcept
+	{
+		return ((int64_t)htonll((uint64_t)value));
+	}
+
+	int64_t ntohll(int64_t value) noexcept
+	{
+		return ((int64_t)ntohll((uint64_t)value));
+	}
+
+	uint16_t little_endian_to_host(uint16_t value) noexcept
+	{
+		if constexpr (std::endian::native == std::endian::big)
+			return (value >> 8) | (value << 8);
+		else return value;
+	}
+
+	uint16_t host_to_little_endian(uint16_t value) noexcept
+	{
+		return little_endian_to_host(value);
+	}
+
+	uint32_t little_endian_to_host(uint32_t value) noexcept
+	{
+		if constexpr (std::endian::native == std::endian::big)
+		{
+			const uint16_t high_part = little_endian_to_host(static_cast<uint16_t>(value >> 16));
+			const uint16_t low_part = little_endian_to_host(static_cast<uint16_t>(value & 0xFFFF));
+			uint32_t converted_value = (static_cast<uint32_t>(low_part) << 16) | high_part;
+			return converted_value;
+		}
+		else return value;
+	}
+
+	uint32_t host_to_little_endian(uint32_t value) noexcept
+	{
+		if constexpr (std::endian::native == std::endian::big)
+		{
+			const uint16_t high_part = host_to_little_endian(static_cast<uint16_t>(value >> 16));
+			const uint16_t low_part = host_to_little_endian(static_cast<uint16_t>(value & 0xFFFF));
+			uint32_t converted_value = (static_cast<uint32_t>(low_part) << 16) | high_part;
+			return converted_value;
+		}
+		else return value;
+	}
+
+	uint64_t little_endian_to_host(uint64_t value) noexcept
+	{
+		if constexpr (std::endian::native == std::endian::big)
+		{
+			const uint32_t high_part = little_endian_to_host(static_cast<uint32_t>(value >> 32));
+			const uint32_t low_part = little_endian_to_host(static_cast<uint32_t>(value & 0xFFFFFFFFLL));
+			uint64_t converted_value = (static_cast<uint64_t>(low_part) << 32) | high_part;
+			return converted_value;
+		}
+		else return value;
+	}
+
+	uint64_t host_to_little_endian(uint64_t value) noexcept
+	{
+		if constexpr (std::endian::native == std::endian::big)
+		{
+			const uint32_t high_part = host_to_little_endian(static_cast<uint32_t>(value >> 32));
+			const uint32_t low_part = host_to_little_endian(static_cast<uint32_t>(value & 0xFFFFFFFFLL));
+			uint64_t converted_value = (static_cast<uint64_t>(low_part) << 32) | high_part;
+			return converted_value;
+		}
+		else return value;
+	}
+
+	int16_t little_endian_to_host(int16_t value) noexcept
+	{
+		return ((int16_t)little_endian_to_host((uint16_t)value));
+	}
+
+	int16_t host_to_little_endian(int16_t value) noexcept
+	{
+		return ((int16_t)host_to_little_endian((uint16_t)value));
+	}
+
+	int32_t little_endian_to_host(int32_t value) noexcept
+	{
+		return ((int32_t)little_endian_to_host((uint32_t)value));
+	}
+
+	int32_t host_to_little_endian(int32_t value) noexcept
+	{
+		return ((int32_t)host_to_little_endian((uint32_t)value));
+	}
+
+	int64_t little_endian_to_host(int64_t value) noexcept
+	{
+		return ((int64_t)little_endian_to_host((uint64_t)value));
+	}
+
+	int64_t host_to_little_endian(int64_t value) noexcept
+	{
+		return ((int64_t)host_to_little_endian((uint64_t)value));
 	}
 }
 

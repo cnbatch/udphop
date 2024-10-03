@@ -31,7 +31,8 @@ constexpr uint8_t TIME_GAP = std::numeric_limits<uint8_t>::max();	//seconds
 constexpr size_t BUFFER_SIZE = 2048u;
 constexpr size_t BUFFER_EXPAND_SIZE = 128u;
 constexpr size_t EMPTY_PACKET_SIZE = 1430u;
-constexpr size_t RAW_HEADER_SIZE = 12u;
+constexpr size_t SMALL_PACKET_DATA_SIZE = 3u;
+constexpr size_t RAW_HEADER_SIZE = 9u;
 constexpr size_t RETRY_TIMES = 30u;
 constexpr size_t RETRY_WAITS = 2u;
 constexpr size_t CLEANUP_WAITS = 10u;	// second
@@ -54,29 +55,59 @@ int64_t right_now();
 
 void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3);
 
+enum class feature : uint8_t
+{
+	keep_alive,
+	test_connection,
+	keep_alive_response,
+	raw_data
+};
+
+enum class hop_status : uint8_t
+{
+	pending,
+	available,
+	testing
+};
+
 namespace packet
 {
 #pragma pack (push, 1)
 	struct packet_layer
 	{
+		uint32_t timestamp;
 		uint32_t iden;
-		int64_t timestamp;
+		feature feature_value;
 		uint8_t data[1];
 	};
 
 	struct packet_layer_fec
 	{
+		uint32_t timestamp;
 		uint32_t iden;
-		int64_t timestamp;
+		feature feature_value;
 		uint32_t sn;
 		uint8_t sub_sn;
 		uint8_t data[1];
 	};
 #pragma pack(pop)
 
-	// from https://stackoverflow.com/questions/3022552/is-there-any-standard-htonl-like-function-for-64-bits-integers-in-c
-	uint64_t htonll(uint64_t value);
-	uint64_t ntohll(uint64_t value);
+	uint64_t htonll(uint64_t value) noexcept;
+	uint64_t ntohll(uint64_t value) noexcept;
+	int64_t htonll(int64_t value) noexcept;
+	int64_t ntohll(int64_t value) noexcept;
+	uint16_t little_endian_to_host(uint16_t value) noexcept;
+	uint16_t host_to_little_endian(uint16_t value) noexcept;
+	uint32_t little_endian_to_host(uint32_t value) noexcept;
+	uint32_t host_to_little_endian(uint32_t value) noexcept;
+	uint64_t little_endian_to_host(uint64_t value) noexcept;
+	uint64_t host_to_little_endian(uint64_t value) noexcept;
+	int16_t little_endian_to_host(int16_t value) noexcept;
+	int16_t host_to_little_endian(int16_t value) noexcept;
+	int32_t little_endian_to_host(int32_t value) noexcept;
+	int32_t host_to_little_endian(int32_t value) noexcept;
+	int64_t little_endian_to_host(int64_t value) noexcept;
+	int64_t host_to_little_endian(int64_t value) noexcept;
 
 	class data_wrapper
 	{
@@ -89,53 +120,56 @@ namespace packet
 		data_wrapper(uint32_t id, std::weak_ptr<udp_mappings> related_session_ptr) :
 			iden(id), udp_session_ptr(related_session_ptr) {}
 
-		static uint32_t extract_iden(const std::vector<uint8_t> &input_data)
+		static uint32_t extract_iden(const std::vector<uint8_t> &input_data) noexcept
 		{
 			const packet_layer *ptr = (const packet_layer *)input_data.data();
 			return ntohl(ptr->iden);
 		}
 
-		static uint32_t extract_iden(const uint8_t *input_data)
+		static uint32_t extract_iden(const uint8_t *input_data) noexcept
 		{
 			const packet_layer *ptr = (const packet_layer *)input_data;
 			return ntohl(ptr->iden);
 		}
 
-		uint32_t get_iden() { return iden; }
+		uint32_t get_iden() const noexcept { return iden; }
 
-		void write_iden(uint8_t *input_data)
+		void write_iden(uint8_t *input_data) const noexcept
 		{
 			packet_layer *ptr = (packet_layer *)input_data;
 			ptr->iden = htonl(iden);
 		}
 
-		std::tuple<int64_t, const uint8_t *, size_t> receive_data(const uint8_t *input_data, size_t length)
+		std::tuple<uint32_t, feature, const uint8_t *, size_t> receive_data(const uint8_t *input_data, size_t length)
 		{
 			const packet_layer *ptr = (const packet_layer *)input_data;
-			int64_t timestamp = ntohll(ptr->timestamp);
+			uint32_t timestamp = little_endian_to_host(ptr->timestamp);
+			feature feature_value = ptr->feature_value;
 			const uint8_t *data_ptr = ptr->data;
 			size_t data_size = length - (data_ptr - input_data);
 
-			return { timestamp, data_ptr, data_size };
+			return { timestamp, feature_value, data_ptr, data_size };
 		}
 
-		std::pair<int64_t, std::vector<uint8_t>> receive_data(const std::vector<uint8_t> &input_data)
+		std::tuple<uint32_t, feature, std::vector<uint8_t>> receive_data(const std::vector<uint8_t> &input_data)
 		{
 			const packet_layer *ptr = (const packet_layer *)input_data.data();
-			int64_t timestamp = ntohll(ptr->timestamp);
+			uint32_t timestamp = little_endian_to_host(ptr->timestamp);
+			feature feature_value = ptr->feature_value;
 			const uint8_t *data_ptr = ptr->data;
 
 			size_t data_size = input_data.size() - (data_ptr - input_data.data());
 
-			return { timestamp, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
+			return { timestamp, feature_value, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
 		}
 
 		std::tuple<packet_layer_fec, const uint8_t *, size_t> receive_data_with_fec(const uint8_t *input_data, size_t length)
 		{
 			packet_layer_fec packet_header{};
 			const packet_layer_fec *ptr = (const packet_layer_fec *)input_data;
-			packet_header.timestamp = ntohll(ptr->timestamp);
+			packet_header.timestamp = little_endian_to_host(ptr->timestamp);
 			packet_header.iden = ntohl(ptr->iden);
+			packet_header.feature_value = ptr->feature_value;
 			packet_header.sn = ntohl(ptr->sn);
 			packet_header.sub_sn = ptr->sub_sn;
 
@@ -149,7 +183,8 @@ namespace packet
 		{
 			packet_layer_fec packet_header{};
 			const packet_layer_fec *ptr = (const packet_layer_fec *)input_data.data();
-			packet_header.timestamp = ntohll(ptr->timestamp);
+			packet_header.timestamp = little_endian_to_host(ptr->timestamp);
+			packet_header.feature_value = ptr->feature_value;
 			packet_header.iden = ntohl(ptr->iden);
 			packet_header.sn = ntohl(ptr->sn);
 			packet_header.sub_sn = ptr->sub_sn;
@@ -160,15 +195,16 @@ namespace packet
 			return { packet_header, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
 		}
 
-		std::vector<uint8_t> pack_data(const uint8_t *input_data, size_t data_size)
+		std::vector<uint8_t> pack_data(feature feature_value, const uint8_t *input_data, size_t data_size) const
 		{
 			auto timestamp = right_now();
 			size_t new_size = sizeof(packet_layer) - 1 + data_size;
 
 			std::vector<uint8_t> new_data(new_size);
 			packet_layer *ptr = (packet_layer *)new_data.data();
+			ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
 			ptr->iden = htonl(iden);
-			ptr->timestamp = htonll(timestamp);
+			ptr->feature_value = feature_value;
 			uint8_t *data_ptr = ptr->data;
 
 			if (data_size > 0)
@@ -177,15 +213,16 @@ namespace packet
 			return new_data;
 		}
 
-		size_t pack_data(uint8_t *input_data, size_t data_size)
+		size_t pack_data(feature feature_value, uint8_t *input_data, size_t data_size) const
 		{
 			auto timestamp = right_now();
 			size_t new_size = sizeof(packet_layer) - 1 + data_size;
 			uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
 
 			packet_layer *ptr = (packet_layer *)new_data;
+			ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
 			ptr->iden = htonl(iden);
-			ptr->timestamp = htonll(timestamp);
+			ptr->feature_value = feature_value;
 			uint8_t *data_ptr = ptr->data;
 
 			if (data_size > 0)
@@ -196,15 +233,16 @@ namespace packet
 			return new_size;
 		}
 
-		std::vector<uint8_t> pack_data_with_fec(const uint8_t *input_data, size_t data_size, uint32_t sn, uint8_t sub_sn)
+		std::vector<uint8_t> pack_data_with_fec(feature feature_value, const uint8_t *input_data, size_t data_size, uint32_t sn, uint8_t sub_sn) const
 		{
 			auto timestamp = right_now();
 			size_t new_size = sizeof(packet_layer_fec) - 1 + data_size;
 
 			std::vector<uint8_t> new_data(new_size);
 			packet_layer_fec *ptr = (packet_layer_fec *)new_data.data();
+			ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
 			ptr->iden = htonl(iden);
-			ptr->timestamp = htonll(timestamp);
+			ptr->feature_value = feature_value;
 			ptr->sn = htonl(sn);
 			ptr->sub_sn = sub_sn;
 
@@ -215,15 +253,16 @@ namespace packet
 			return new_data;
 		}
 
-		size_t pack_data_with_fec(uint8_t *input_data, size_t data_size, uint32_t sn, uint8_t sub_sn)
+		size_t pack_data_with_fec(feature feature_value, uint8_t *input_data, size_t data_size, uint32_t sn, uint8_t sub_sn) const
 		{
 			auto timestamp = right_now();
 			size_t new_size = sizeof(packet_layer_fec) - 1 + data_size;
 			uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
 
 			packet_layer_fec *ptr = (packet_layer_fec *)new_data;
+			ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
 			ptr->iden = htonl(iden);
-			ptr->timestamp = htonll(timestamp);
+			ptr->feature_value = feature_value;
 			ptr->sn = htonl(sn);
 			ptr->sub_sn = sub_sn;
 
@@ -236,14 +275,77 @@ namespace packet
 			return new_size;
 		}
 
-		std::vector<uint8_t> pack_data(const std::vector<uint8_t> &input_data)
+		std::vector<uint8_t> pack_data(feature feature_value, const std::vector<uint8_t> &input_data) const
 		{
-			return pack_data(input_data.data(), input_data.size());
+			return pack_data(feature_value, input_data.data(), input_data.size());
 		}
 
-		std::vector<uint8_t> pack_data_with_fec(const std::vector<uint8_t> &input_data, uint32_t sn, uint8_t sub_sn)
+		std::vector<uint8_t> pack_data_with_fec(feature feature_value, const std::vector<uint8_t> &input_data, uint32_t sn, uint8_t sub_sn) const
 		{
-			return pack_data_with_fec(input_data.data(), input_data.size(), sn, sub_sn);
+			return pack_data_with_fec(feature_value, input_data.data(), input_data.size(), sn, sub_sn);
+		}
+
+		uint32_t unpack_test_iden(const uint8_t *input_data)
+		{
+			if (input_data == nullptr)
+				return 0;
+			const uint32_t *data = (const uint32_t *)input_data;
+			uint32_t iden_number = ntohl(data[0]);
+			return iden_number;
+		}
+
+		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_random_small_packet() const
+		{
+			constexpr size_t data_size = sizeof(uint32_t) * SMALL_PACKET_DATA_SIZE;
+			std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+			std::fill_n((uint32_t*)data.get(), SMALL_PACKET_DATA_SIZE, generate_token_number());
+			return { std::move(data), data_size };
+		}
+
+		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_small_packet() const
+		{
+			constexpr size_t data_size = sizeof(uint32_t) * SMALL_PACKET_DATA_SIZE;
+			std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+			uint32_t fill_number = htonl(iden);
+			std::fill_n((uint32_t*)data.get(), SMALL_PACKET_DATA_SIZE, fill_number);
+			return { std::move(data), data_size };
+		}
+
+		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_small_packet(uint32_t input_iden) const
+		{
+			constexpr size_t data_size = sizeof(uint32_t) * SMALL_PACKET_DATA_SIZE;
+			std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+			uint32_t fill_number = htonl(input_iden);
+			std::fill_n((uint32_t*)data.get(), SMALL_PACKET_DATA_SIZE, fill_number);
+			return { std::move(data), data_size };
+		}
+
+		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_keep_alive_packet() const
+		{
+			auto [data, data_size] = create_random_small_packet();
+			size_t packed_size = pack_data(feature::keep_alive, data.get(), data_size);
+			return { std::move(data), packed_size };
+		}
+
+		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_keep_alive_response_packet() const
+		{
+			auto [data, data_size] = create_random_small_packet();
+			size_t packed_size = pack_data(feature::keep_alive_response, data.get(), data_size);
+			return { std::move(data), packed_size };
+		}
+
+		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_test_connection_packet() const
+		{
+			auto [data, data_size] = create_small_packet();
+			size_t packed_size = pack_data(feature::test_connection, data.get(), data_size);
+			return { std::move(data), packed_size };
+		}
+
+		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_test_connection_packet(uint32_t input_iden) const
+		{
+			auto [data, data_size] = create_small_packet(input_iden);
+			size_t packed_size = pack_data(feature::test_connection, data.get(), data_size);
+			return { std::move(data), packed_size };
 		}
 	};
 }
@@ -391,7 +493,7 @@ struct fec_control_data
 
 struct udp_mappings
 {
-	std::shared_ptr<packet::data_wrapper> wrapper_ptr;
+	std::unique_ptr<packet::data_wrapper> wrapper_ptr;
 	std::shared_mutex mutex_ingress_endpoint;
 	udp::endpoint ingress_source_endpoint;
 	std::shared_mutex mutex_egress_endpoint;
@@ -400,7 +502,12 @@ struct udp_mappings
 	std::shared_ptr<forwarder> egress_forwarder;	// client only
 	alignas(64) std::atomic<udp_server*> ingress_sender;	// server only
 	std::unique_ptr<udp_client> local_udp;	// server only
-	alignas(64) std::atomic<int64_t> changeport_timestamp;
+	alignas(64) std::atomic<int64_t> hopping_timestamp;
+	alignas(64) std::atomic<hop_status> hopping_available;
+	std::shared_ptr<forwarder> egress_hopping_forwarder;
+	std::unique_ptr<packet::data_wrapper> hopping_wrapper_ptr;
+	udp::endpoint hopping_endpoint;
+	std::function<void()> mapping_function = []() {};
 	fec_control_data fec_ingress_control;
 	fec_control_data fec_egress_control;
 	alignas(64) std::atomic<int64_t> keep_alive_ingress_timestamp{ std::numeric_limits<int64_t>::max() };

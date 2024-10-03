@@ -18,6 +18,9 @@ class client_mode
 	std::shared_mutex mutex_udp_session_channels;
 	std::unordered_map<uint32_t, std::shared_ptr<udp_mappings>> udp_session_channels;
 
+	std::shared_mutex mutex_hopping_sessions;
+	std::unordered_map<std::shared_ptr<udp_mappings>, int64_t> hopping_sessions;
+
 	std::mutex mutex_expiring_sessions;
 	std::unordered_map<std::shared_ptr<udp_mappings>, int64_t> expiring_sessions;
 	std::mutex mutex_expiring_forwarders;
@@ -41,18 +44,24 @@ class client_mode
 	void udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	bool get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
 	bool update_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
+	void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::vector<uint8_t> &&data);
-	void fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	void fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	void fec_test_maker(std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void fec_find_missings(udp_mappings *udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 
 	void cleanup_expiring_forwarders();
 	void cleanup_expiring_data_connections();
 	void loop_timeout_sessions();
 	void loop_keep_alive();
+	void loop_hopping_test();
 	void find_expires(const asio::error_code &e);
 	void expiring_wrapper_loops(const asio::error_code &e);
 	void change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr);
+	void test_before_change(std::shared_ptr<udp_mappings> udp_mappings_ptr);
+	void switch_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr);
+	void verify_testing_response(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size);
 	void keep_alive(const asio::error_code &e);
 	void log_status(const asio::error_code &e);
 	void loop_get_status();

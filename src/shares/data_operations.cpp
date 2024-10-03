@@ -213,7 +213,6 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 		iv_raw[1] = simple_hashing::checksum8(data_ptr, length);
 		cipher_length = length;
 		no_encryption = true;
-		//bitwise_not(data_ptr, cipher_length);
 		break;
 	}
 	};
@@ -226,7 +225,7 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 	}
 
 	if (no_encryption)
-		xor_backward(data_ptr, cipher_length);
+		xor_forward(data_ptr, cipher_length);
 
 	return { std::move(error_message), cipher_length };
 }
@@ -282,11 +281,8 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 		uint8_t second_hash = simple_hashing::checksum8(data_ptr, length);
 		cipher_length = length;
 		no_encryption = true;
-		//iv_raw[0] = ~first_hash;
-		//iv_raw[1] = ~second_hash;
 		cipher_cache.resize(cipher_length + constant_values::iv_checksum_block_size);
 		std::copy_n((const uint8_t *)data_ptr, length, cipher_cache.begin());
-		//std::transform((const uint8_t *)data_ptr, (const uint8_t *)data_ptr + length, cipher_cache.begin(), [](auto ch) { return ~ch; });
 		break;
 	}
 	};
@@ -298,7 +294,7 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	}
 
 	if (no_encryption)
-		xor_backward(cipher_cache);
+		xor_forward(cipher_cache);
 
 	return cipher_cache;
 }
@@ -349,12 +345,6 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	{
 		iv_raw[0] = simple_hashing::xor_u8(input_data.data(), input_data.size());
 		iv_raw[1] = simple_hashing::checksum8(input_data.data(), input_data.size());
-		no_encryption = true;
-		//uint8_t first_hash = simple_hashing::xor_u8(input_data.data(), input_data.size());
-		//uint8_t second_hash = simple_hashing::checksum8(input_data.data(), input_data.size());
-		//iv_raw[0] = ~first_hash;
-		//iv_raw[1] = ~second_hash;
-		//std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
 		break;
 	}
 	};
@@ -365,7 +355,7 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	input_data[cipher_length + 1] = iv_raw[1];
 
 	if (no_encryption)
-		xor_backward(input_data);
+		xor_forward(input_data);
 
 	return input_data;
 }
@@ -415,8 +405,7 @@ std::pair<std::string, size_t> decrypt_data(const std::string &password, encrypt
 	}
 	default:
 	{
-		xor_forward(data_ptr, length);
-		//bitwise_not(data_ptr, length);
+		xor_backward(data_ptr, length);
 		data_length = length - constant_values::iv_checksum_block_size;
 		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, data_length);
 		uint8_t second_hash = simple_hashing::checksum8(data_ptr, data_length);
@@ -478,13 +467,10 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	{
 		data_cache.resize(length);
 		std::copy_n((const uint8_t *)data_ptr, length, data_cache.begin());
-		xor_forward(data_cache);
+		xor_backward(data_cache);
 		iv_raw[0] = data_cache[length - 2];
 		iv_raw[1] = data_cache[length - 1];
 		data_cache.resize(data_length);
-		//std::transform(data_cache.begin(), data_cache.end(), data_cache.begin(), [](auto ch) { return ~ch; });
-		//iv_raw[0] = ~iv_raw[0];
-		//iv_raw[1] = ~iv_raw[1];
 		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, data_length);
 		uint8_t second_hash = simple_hashing::checksum8(data_ptr, data_length);
 		if (first_hash != iv_raw[0] || second_hash != iv_raw[1])
@@ -549,12 +535,9 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	}
 	default:
 	{
-		xor_forward(input_data);
+		xor_backward(input_data);
 		iv_raw[0] = input_data[input_data.size() - 2];
 		iv_raw[1] = input_data[input_data.size() - 1];
-		//std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
-		//iv_raw[0] = ~iv_raw[0];
-		//iv_raw[1] = ~iv_raw[1];
 		uint8_t first_hash = simple_hashing::xor_u8(input_data.data(), input_data.size());
 		uint8_t second_hash = simple_hashing::checksum8(input_data.data(), input_data.size());
 		if (first_hash != iv_raw[0] || second_hash != iv_raw[1])

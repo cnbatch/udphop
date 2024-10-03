@@ -128,7 +128,12 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num);
 uint32_t generate_token_number();
 
-int64_t calculate_difference(int64_t number1, int64_t number2);
+template<typename T>
+T calculate_difference(T number_left, T number_right)
+{
+	return std::abs(number_left - number_right);
+}
+
 std::string time_to_string();
 std::string time_to_string_with_square_brackets();
 void print_ip_to_file(const std::string &message, const std::filesystem::path &log_file);
