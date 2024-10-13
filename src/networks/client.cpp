@@ -54,7 +54,9 @@ bool client_mode::start()
 	try
 	{
 		udp_callback_t udp_func_ap = std::bind(&client_mode::udp_listener_incoming, this, _1, _2, _3, _4);
-		udp_access_point = std::make_unique<udp_server>(network_io, sequence_task_pool_local, task_limit, listen_on_ep, udp_func_ap);
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_local, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool { return sequence_task_pool.get_local_network_task_count(number) > TASK_COUNT_LIMIT; };
+		udp_access_point = std::make_unique<udp_server>(network_io, bind_push_func, bind_check_limit_func, listen_on_ep, udp_func_ap);
 
 		timer_find_timeout.expires_after(FINDER_TIMEOUT_INTERVAL);
 		timer_find_timeout.async_wait([this](const asio::error_code &e) { find_expires(e); });
@@ -146,8 +148,10 @@ void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 	std::shared_ptr<udp_mappings> udp_session_ptr = std::make_shared<udp_mappings>();
 	try
 	{
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_peer, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_peer_network_task_count(number) > TASK_COUNT_LIMIT; };
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_session_ptr, udp_func, current_settings.ip_version_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, udp_session_ptr, udp_func, current_settings.ip_version_only);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -168,7 +172,7 @@ void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 	udp_session_ptr->hopping_wrapper_ptr = std::make_unique<packet::data_wrapper>(0, udp_session_ptr);
 	udp_session_ptr->egress_forwarder = udp_forwarder;
 	udp_session_ptr->egress_previous_target_endpoint = udp_session_ptr->egress_target_endpoint;
-	udp_session_ptr->ingress_source_endpoint = peer;
+	udp_session_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
 	packet::data_wrapper *data_wrapper_ptr = udp_session_ptr->wrapper_ptr.get();
 
 	uint8_t *packing_data_ptr = data.get();
@@ -308,11 +312,8 @@ void client_mode::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappi
 		break;
 	case feature::raw_data:
 	{
-		std::shared_lock shared_locker_ingress_endpoint{ udp_session_ptr->mutex_ingress_endpoint };
-		udp::endpoint udp_endpoint = udp_session_ptr->ingress_source_endpoint;
-		shared_locker_ingress_endpoint.unlock();
-
-		udp_access_point->async_send_out(std::move(data), received_data_ptr, received_size, udp_endpoint);
+		std::shared_ptr<udp::endpoint> ingress_source_endpoint = udp_session_ptr->ingress_source_endpoint;
+		udp_access_point->async_send_out(std::move(data), received_data_ptr, received_size, *ingress_source_endpoint);
 		udp_session_ptr->last_egress_receive_time.store(right_now());
 		udp_session_ptr->last_inress_send_time.store(right_now());
 		break;
@@ -435,13 +436,6 @@ void client_mode::fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, featu
 	}
 }
 
-void client_mode::fec_test_maker(std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size)
-{
-	fec_control_data &fec_controllor = udp_session_ptr->fec_egress_control;
-	size_t fec_data_buffer_size = udp_session_ptr->wrapper_ptr->pack_data_with_fec(feature_value, data.get(), data_size, 0, 0);
-	data_sender(udp_session_ptr, peer, std::move(data), fec_data_buffer_size);
-}
-
 void client_mode::fec_find_missings(udp_mappings *udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count)
 {
 	for (auto iter = fec_controllor.fec_rcv_cache.begin(), next_iter = iter; iter != fec_controllor.fec_rcv_cache.end(); iter = next_iter)
@@ -476,7 +470,8 @@ void client_mode::fec_find_missings(udp_mappings *udp_session_ptr, fec_control_d
 		for (auto &[i, data] : restored_data)
 		{
 			auto [missed_data_ptr, missed_data_size] = extract_from_container(data);
-			udp_access_point->async_send_out(std::move(data), missed_data_ptr, missed_data_size, udp_session_ptr->ingress_source_endpoint);
+			std::shared_ptr<udp::endpoint> udp_endpoint = udp_session_ptr->ingress_source_endpoint;
+			udp_access_point->async_send_out(std::move(data), missed_data_ptr, missed_data_size, *udp_endpoint);
 			fec_recovery_count++;
 		}
 
@@ -530,7 +525,8 @@ void client_mode::cleanup_expiring_data_connections()
 			continue;
 		}
 
-		udp_endpoint_map_to_session.erase(udp_session_ptr->ingress_source_endpoint);
+		std::shared_ptr<udp::endpoint> ingress_source_endpoint = udp_session_ptr->ingress_source_endpoint;
+		udp_endpoint_map_to_session.erase(*ingress_source_endpoint);
 		expiring_sessions.erase(iter);
 	}
 }
@@ -613,7 +609,8 @@ void client_mode::loop_hopping_test()
 		else
 		{
 			auto [response_packet, response_packet_size] = udp_session_ptr->hopping_wrapper_ptr->create_small_packet(iden);
-			fec_test_maker(udp_session_ptr, udp_session_ptr->hopping_endpoint, feature::test_connection, std::move(response_packet), response_packet_size);
+			size_t fec_data_buffer_size = udp_session_ptr->hopping_wrapper_ptr->pack_data_with_fec(feature::test_connection, response_packet.get(), response_packet_size, 0, 0);
+			data_sender(udp_session_ptr, udp_session_ptr->hopping_endpoint, std::move(response_packet), fec_data_buffer_size);
 		}
 	}
 	locker_shared.unlock();
@@ -687,8 +684,10 @@ void client_mode::test_before_change(std::shared_ptr<udp_mappings> udp_mappings_
 		std::shared_ptr<forwarder> udp_forwarder = nullptr;
 		try
 		{
+			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_peer, &sequence_task_pool, _1, _2, _3);
+			auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_peer_network_task_count(number) > TASK_COUNT_LIMIT; };
 			auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
-			udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, udp_mappings_ptr, udp_func, current_settings.ip_version_only);
+			udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, udp_mappings_ptr, udp_func, current_settings.ip_version_only);
 			if (udp_forwarder == nullptr)
 			{
 				udp_mappings_ptr->hopping_timestamp.store(time_right_now + current_settings.dynamic_port_refresh);
@@ -704,7 +703,13 @@ void client_mode::test_before_change(std::shared_ptr<udp_mappings> udp_mappings_
 			return;
 		}
 
-		if (destination_port_start != destination_port_end)
+		if (destination_port_start == destination_port_end)
+		{
+			std::shared_lock locker_egress{ udp_mappings_ptr->mutex_egress_endpoint };
+			udp_mappings_ptr->hopping_endpoint = udp_mappings_ptr->egress_target_endpoint;
+			locker_egress.unlock();
+		}
+		else
 		{
 			std::shared_lock locker_egress{ udp_mappings_ptr->mutex_egress_endpoint };
 			uint16_t current_port_number = udp_mappings_ptr->egress_target_endpoint.port();
@@ -739,6 +744,7 @@ void client_mode::test_before_change(std::shared_ptr<udp_mappings> udp_mappings_
 		new_forwarder->async_receive();
 		if (udp_mappings_ptr->egress_hopping_forwarder != nullptr)
 		{
+			udp_mappings_ptr->egress_hopping_forwarder->pause(true);
 			std::scoped_lock lock_expiring_forwarders{ mutex_expiring_forwarders };
 			expiring_forwarders[udp_mappings_ptr->egress_hopping_forwarder] = right_now();
 		}

@@ -41,9 +41,7 @@ class relay_mode
 	asio::steady_timer timer_keep_alive_ingress;
 	asio::steady_timer timer_keep_alive_egress;
 	asio::steady_timer timer_status_log;
-	ttp::task_group_pool &sequence_task_pool_local;
-	ttp::task_group_pool &sequence_task_pool_peer;
-	const size_t task_limit;
+	ttp::task_group_pool &sequence_task_pool;
 
 	std::unique_ptr<udp::endpoint> udp_target;
 	std::atomic<size_t> fec_recovery_count_ingress;
@@ -68,9 +66,7 @@ class relay_mode
 	void data_sender_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void data_sender_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, std::vector<uint8_t> &&data);
 	void fec_maker_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
-	void fec_test_maker_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void fec_maker_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
-	void fec_test_maker_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void fec_find_missings_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 	void fec_find_missings_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 	size_t fec_find_missings(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count,
@@ -98,7 +94,7 @@ public:
 	relay_mode(const relay_mode &) = delete;
 	relay_mode& operator=(const relay_mode &) = delete;
 
-	relay_mode(asio::io_context &io_context_ref, asio::io_context &net_io, ttp::task_group_pool &seq_task_pool_local, ttp::task_group_pool &seq_task_pool_peer, size_t task_count_limit, const user_settings &settings)
+	relay_mode(asio::io_context &io_context_ref, asio::io_context &net_io, ttp::task_group_pool& seq_task_pool, const user_settings &settings)
 		: io_context(io_context_ref),
 		network_io(net_io),
 		timer_expiring_sessions(io_context),
@@ -107,9 +103,7 @@ public:
 		timer_keep_alive_ingress(io_context),
 		timer_keep_alive_egress(io_context),
 		timer_status_log(io_context),
-		sequence_task_pool_local(seq_task_pool_local),
-		sequence_task_pool_peer(seq_task_pool_peer),
-		task_limit(task_count_limit),
+		sequence_task_pool(seq_task_pool),
 		external_ipv4_port(0),
 		external_ipv4_address(0),
 		external_ipv6_port(0),
@@ -126,9 +120,7 @@ public:
 		timer_keep_alive_ingress(std::move(existing_server.timer_keep_alive_ingress)),
 		timer_keep_alive_egress(std::move(existing_server.timer_keep_alive_egress)),
 		timer_status_log(std::move(existing_server.timer_status_log)),
-		sequence_task_pool_local(existing_server.sequence_task_pool_local),
-		sequence_task_pool_peer(existing_server.sequence_task_pool_peer),
-		task_limit(existing_server.task_limit),
+		sequence_task_pool(existing_server.sequence_task_pool),
 		external_ipv4_port(existing_server.external_ipv4_port.load()),
 		external_ipv4_address(existing_server.external_ipv4_address.load()),
 		external_ipv6_port(existing_server.external_ipv6_port.load()),

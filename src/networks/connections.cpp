@@ -20,6 +20,11 @@ void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpo
 {
 }
 
+bool return_false(size_t)
+{
+	return false;
+}
+
 namespace packet
 {
 	uint64_t htonll(uint64_t value) noexcept
@@ -356,18 +361,18 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 
-	if (sequence_task_pool != nullptr)
+	switch (task_type_running)
 	{
-		size_t pointer_to_number = (size_t)this;
-		if (task_limit > 0 && sequence_task_pool->get_task_count(pointer_to_number) > task_limit)
-			return;
-		sequence_task_pool->push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+	case task_type::sequence:
+		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
 			std::move(buffer_cache));
-	}
-	else
-	{
+		break;
+	case task_type::in_place:
 		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, port_number);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -548,23 +553,21 @@ void udp_client::start_receive()
 
 void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred)
 {
-	if (stopped.load())
-		return;
-
 	if (error)
 	{
-		if (connection_socket.is_open())
+		if (!stopped.load() && !paused.load() && connection_socket.is_open())
 			start_receive();
 		return;
 	}
+
+	if (stopped.load() || buffer_cache == nullptr || bytes_transferred == 0)
+		return;
 
 	last_receive_time.store(right_now());
 
 	udp::endpoint copy_of_incoming_endpoint = incoming_endpoint;
 	start_receive();
 
-	if (buffer_cache == nullptr || bytes_transferred == 0)
-		return;
 
 	if (BUFFER_SIZE - bytes_transferred < BUFFER_EXPAND_SIZE)
 	{
@@ -573,17 +576,17 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 	
-	if (sequence_task_pool != nullptr)
+	switch (task_type_running)
 	{
-		size_t pointer_to_number = (size_t)this;
-		if (task_limit > 0 && sequence_task_pool->get_task_count(pointer_to_number) > task_limit)
-			return;
-		sequence_task_pool->push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+	case task_type::sequence:
+		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },
 			std::move(buffer_cache));
-	}
-	else
-	{
+		break;
+	case task_type::in_place:
 		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, 0);
+		break;
+	default:
+		break;
 	}
 }

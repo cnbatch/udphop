@@ -34,9 +34,7 @@ class client_mode
 	asio::steady_timer timer_expiring_sessions;
 	asio::steady_timer timer_keep_alive;
 	asio::steady_timer timer_status_log;
-	ttp::task_group_pool &sequence_task_pool_local;
-	ttp::task_group_pool &sequence_task_pool_peer;
-	const size_t task_limit;
+	ttp::task_group_pool &sequence_task_pool;
 
 	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
 	void udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number);
@@ -48,7 +46,6 @@ class client_mode
 	void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::vector<uint8_t> &&data);
 	void fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
-	void fec_test_maker(std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void fec_find_missings(udp_mappings *udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 
 	void cleanup_expiring_forwarders();
@@ -71,16 +68,14 @@ public:
 	client_mode(const client_mode &) = delete;
 	client_mode& operator=(const client_mode &) = delete;
 
-	client_mode(asio::io_context &io_context_ref, asio::io_context &net_io, ttp::task_group_pool &seq_task_pool_local, ttp::task_group_pool &seq_task_pool_peer, size_t task_count_limit, const user_settings &settings) :
+	client_mode(asio::io_context &io_context_ref, asio::io_context &net_io, ttp::task_group_pool& seq_task_pool, const user_settings &settings) :
 		io_context(io_context_ref),
 		network_io(net_io),
 		timer_find_timeout(io_context),
 		timer_expiring_sessions(io_context),
 		timer_keep_alive(io_context),
 		timer_status_log(io_context),
-		sequence_task_pool_local(seq_task_pool_local),
-		sequence_task_pool_peer(seq_task_pool_peer),
-		task_limit(task_count_limit),
+		sequence_task_pool(seq_task_pool),
 		current_settings(settings) {}
 
 	client_mode(client_mode &&existing_client) noexcept :
@@ -90,9 +85,7 @@ public:
 		timer_expiring_sessions(std::move(existing_client.timer_expiring_sessions)),
 		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
 		timer_status_log(std::move(existing_client.timer_status_log)),
-		sequence_task_pool_local(existing_client.sequence_task_pool_local),
-		sequence_task_pool_peer(existing_client.sequence_task_pool_peer),
-		task_limit(existing_client.task_limit),
+		sequence_task_pool(existing_client.sequence_task_pool),
 		current_settings(std::move(existing_client.current_settings)) {}
 	
 	~client_mode();
