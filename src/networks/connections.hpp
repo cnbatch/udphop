@@ -501,18 +501,29 @@ struct fec_control_data
 struct udp_mappings
 {
 	std::unique_ptr<packet::data_wrapper> wrapper_ptr;
+#ifdef __cpp_lib_atomic_shared_ptr
+	std::atomic<std::shared_ptr<udp::endpoint>> ingress_source_endpoint;
+	std::atomic<std::shared_ptr<udp::endpoint>> egress_target_endpoint;
+	std::atomic<std::shared_ptr<udp::endpoint>> egress_previous_target_endpoint;
+	std::atomic<std::shared_ptr<forwarder>> egress_forwarder;	// client only
+#else
 	std::shared_ptr<udp::endpoint> ingress_source_endpoint;
-	std::shared_mutex mutex_egress_endpoint;
-	udp::endpoint egress_target_endpoint;
-	udp::endpoint egress_previous_target_endpoint;
+	std::shared_ptr<udp::endpoint> egress_target_endpoint;
+	std::shared_ptr<udp::endpoint> egress_previous_target_endpoint;
 	std::shared_ptr<forwarder> egress_forwarder;	// client only
+#endif
 	alignas(64) std::atomic<udp_server*> ingress_sender;	// server only
 	std::unique_ptr<udp_client> local_udp;	// server only
 	alignas(64) std::atomic<int64_t> hopping_timestamp;
 	alignas(64) std::atomic<hop_status> hopping_available;
-	std::shared_ptr<forwarder> egress_hopping_forwarder;
 	std::unique_ptr<packet::data_wrapper> hopping_wrapper_ptr;
-	udp::endpoint hopping_endpoint;
+#ifdef __cpp_lib_atomic_shared_ptr
+	std::atomic<std::shared_ptr<forwarder>> egress_hopping_forwarder;
+	std::atomic<std::shared_ptr<udp::endpoint>> hopping_endpoint;
+#else
+	std::shared_ptr<forwarder> egress_hopping_forwarder;
+	std::shared_ptr<udp::endpoint> hopping_endpoint;
+#endif
 	std::function<void()> mapping_function = []() {};
 	fec_control_data fec_ingress_control;
 	fec_control_data fec_egress_control;

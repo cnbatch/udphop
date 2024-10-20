@@ -32,8 +32,11 @@ class relay_mode
 	std::mutex mutex_expiring_forwarders;
 	std::unordered_map<std::shared_ptr<forwarder>, int64_t> expiring_forwarders;
 
-	std::shared_mutex mutex_target_address;
-	std::unique_ptr<asio::ip::address> target_address;
+#ifdef __cpp_lib_atomic_shared_ptr
+	std::atomic<std::shared_ptr<asio::ip::address>> target_address;
+#else
+	std::shared_ptr<asio::ip::address> target_address;
+#endif
 
 	asio::steady_timer timer_expiring_sessions;
 	asio::steady_timer timer_find_timeout;

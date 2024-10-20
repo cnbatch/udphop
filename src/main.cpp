@@ -16,7 +16,7 @@
 int main(int argc, char *argv[])
 {
 #ifdef __cpp_lib_format
-	std::cout << std::format("{} version 20241013\n", app_name);
+	std::cout << std::format("{} version 20241020\n", app_name);
 	if (argc <= 1)
 	{
 		std::cout << std::format("Usage: {} config1.conf\n", app_name);
@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 #else
-	std::cout << app_name << " version 20241013\n";
+	std::cout << app_name << " version 20241020\n";
 	if (argc <= 1)
 	{
 		std::cout << "Usage: " << app_name << " config1.conf\n";
@@ -33,13 +33,13 @@ int main(int argc, char *argv[])
 	}
 #endif
 
-	uint16_t thread_group_count = 1;
-	int io_thread_count = 1;
-	if (std::thread::hardware_concurrency() > 3)
+	uint16_t thread_group_count = 2;
+	int io_thread_count = std::thread::hardware_concurrency() == 1 ? 1 : 2;
+	if (std::thread::hardware_concurrency() > 2)
 	{
 		auto thread_counts = std::thread::hardware_concurrency();
-		thread_group_count = (uint16_t)thread_counts;
-		io_thread_count = (int)std::log2(thread_counts);
+		thread_group_count = thread_counts;
+		io_thread_count = (int)round(log2(thread_counts));
 	}
 
 	ttp::task_group_pool task_groups{ thread_group_count };
@@ -103,13 +103,13 @@ int main(int argc, char *argv[])
 		switch (settings.mode)
 		{
 		case running_mode::client:
-			clients.emplace_back(client_mode(ioc, network_io, /*task_groups_local, task_groups_peer,*/ task_groups, /*task_count_limit,*/ settings));
+			clients.emplace_back(client_mode(ioc, network_io, task_groups, settings));
 			break;
 		case running_mode::relay:
-			relays.emplace_back(relay_mode(ioc, network_io, /*task_groups_local, task_groups_peer,*/ task_groups, /*task_count_limit,*/ settings));
+			relays.emplace_back(relay_mode(ioc, network_io, task_groups, settings));
 			break;
 		case running_mode::server:
-			servers.emplace_back(server_mode(ioc, network_io, /*task_groups_local, task_groups_peer,*/ task_groups, /*task_count_limit,*/ settings));
+			servers.emplace_back(server_mode(ioc, network_io, task_groups, settings));
 			break;
 		default:
 			break;

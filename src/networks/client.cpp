@@ -146,6 +146,8 @@ void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	std::shared_ptr<udp_mappings> udp_session_ptr = std::make_shared<udp_mappings>();
+	udp_session_ptr->egress_target_endpoint = std::make_shared<udp::endpoint>();
+	udp_session_ptr->egress_previous_target_endpoint = std::make_shared<udp::endpoint>();
 	try
 	{
 		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_peer, &sequence_task_pool, _1, _2, _3);
@@ -162,7 +164,9 @@ void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 		print_message_to_file(error_message, current_settings.log_messages);
 	}
 
-	bool success = get_udp_target(udp_forwarder, udp_session_ptr->egress_target_endpoint);
+	std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(udp_session_ptr->egress_target_endpoint));
+	std::shared_ptr<udp::endpoint> egress_previous_target_endpoint = std::atomic_load(&(udp_session_ptr->egress_previous_target_endpoint));
+	bool success = get_udp_target(udp_forwarder, *egress_target_endpoint);
 	if (!success)
 		return;
 
@@ -170,8 +174,9 @@ void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 	udp_session_ptr->hopping_timestamp.store(right_now() + current_settings.dynamic_port_refresh);
 	udp_session_ptr->hopping_available.store(hop_status::pending);
 	udp_session_ptr->hopping_wrapper_ptr = std::make_unique<packet::data_wrapper>(0, udp_session_ptr);
+	udp_session_ptr->hopping_endpoint = std::make_shared<udp::endpoint>();
 	udp_session_ptr->egress_forwarder = udp_forwarder;
-	udp_session_ptr->egress_previous_target_endpoint = udp_session_ptr->egress_target_endpoint;
+	*egress_previous_target_endpoint = *egress_target_endpoint;
 	udp_session_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
 	packet::data_wrapper *data_wrapper_ptr = udp_session_ptr->wrapper_ptr.get();
 
@@ -182,7 +187,7 @@ void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 		return;
 
 	asio::error_code ec;
-	udp_forwarder->send_out(packing_data_ptr, cipher_size, udp_session_ptr->egress_target_endpoint, ec);
+	udp_forwarder->send_out(packing_data_ptr, cipher_size, *egress_target_endpoint, ec);
 	if (ec)
 	{
 		std::string error_message = time_to_string_with_square_brackets() + "Cannot Send Data: " + ec.message();
@@ -279,17 +284,13 @@ void client_mode::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappi
 		}
 	}
 
-	std::shared_lock shared_lock_udp_target{ udp_session_ptr->mutex_egress_endpoint };
-	if (udp_session_ptr->egress_target_endpoint != peer && udp_session_ptr->egress_previous_target_endpoint != peer)
+	std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(udp_session_ptr->egress_target_endpoint));
+	std::shared_ptr<udp::endpoint> egress_previous_target_endpoint = std::atomic_load(&(udp_session_ptr->egress_previous_target_endpoint));
+	if (*egress_target_endpoint != peer && *egress_previous_target_endpoint != peer)
 	{
-		shared_lock_udp_target.unlock();
-		std::scoped_lock unique_lock_udp_target{ udp_session_ptr->mutex_egress_endpoint, mutex_target_address };
-		if (udp_session_ptr->egress_target_endpoint != peer)
-		{
-			udp_session_ptr->egress_previous_target_endpoint = udp_session_ptr->egress_target_endpoint;
-			udp_session_ptr->egress_target_endpoint = peer;
-			*target_address = peer.address();
-		}
+		std::atomic_store(&(udp_session_ptr->egress_previous_target_endpoint), egress_target_endpoint);
+		std::atomic_store(&(udp_session_ptr->egress_target_endpoint), std::make_shared<udp::endpoint>(peer));
+		std::atomic_store(&target_address, std::make_shared<asio::ip::address>(peer.address()));
 	}
 
 	switch (feature_value)
@@ -312,7 +313,7 @@ void client_mode::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappi
 		break;
 	case feature::raw_data:
 	{
-		std::shared_ptr<udp::endpoint> ingress_source_endpoint = udp_session_ptr->ingress_source_endpoint;
+		std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(udp_session_ptr->ingress_source_endpoint));
 		udp_access_point->async_send_out(std::move(data), received_data_ptr, received_size, *ingress_source_endpoint);
 		udp_session_ptr->last_egress_receive_time.store(right_now());
 		udp_session_ptr->last_inress_send_time.store(right_now());
@@ -326,13 +327,14 @@ void client_mode::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappi
 
 bool client_mode::get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target)
 {
-	if (target_address != nullptr)
+	std::shared_ptr<asio::ip::address> target = std::atomic_load(&target_address);
+	if (target != nullptr)
 	{
 		uint16_t destination_port = current_settings.destination_port;
 		if (destination_port == 0)
 			destination_port = generate_new_port_number(current_settings.destination_port_start, current_settings.destination_port_end);
 
-		udp_target = udp::endpoint(*target_address, destination_port);
+		udp_target = udp::endpoint(*target, destination_port);
 		return true;
 	}
 
@@ -367,9 +369,8 @@ bool client_mode::update_udp_target(std::shared_ptr<forwarder> target_connector,
 		}
 		else
 		{
-			std::scoped_lock locker{ mutex_target_address };
 			udp_target = *udp_endpoints.begin();
-			target_address = std::make_unique<asio::ip::address>(udp_target.address());
+			std::atomic_store(&target_address, std::make_shared<asio::ip::address>(udp_target.address()));
 			connect_success = true;
 			break;
 		}
@@ -382,30 +383,35 @@ void client_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, con
 {
 	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
 	if (error_message.empty() && cipher_size > 0)
-		udp_session_ptr->egress_forwarder->async_send_out(std::move(data), cipher_size, peer);
+	{
+		std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&udp_session_ptr->egress_forwarder);
+		egress_forwarder->async_send_out(std::move(data), cipher_size, peer);
+	}
 	change_new_port(udp_session_ptr);
 }
 
 void client_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size)
 {
-	thread_local udp::endpoint debug_endpoint = {};
 	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
 	if (error_message.empty() && cipher_size > 0)
-		udp_session_ptr->egress_forwarder->async_send_out(std::move(data), cipher_size, udp_session_ptr->egress_target_endpoint);
-	if (udp_session_ptr->egress_target_endpoint != debug_endpoint)
-		debug_endpoint = udp_session_ptr->egress_target_endpoint;
+	{
+		std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&udp_session_ptr->egress_forwarder);
+		std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&udp_session_ptr->egress_target_endpoint);
+		egress_forwarder->async_send_out(std::move(data), cipher_size, *egress_target_endpoint);
+	}
 	change_new_port(udp_session_ptr);
 }
 
 void client_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::vector<uint8_t> &&data)
 {
-	thread_local udp::endpoint debug_endpoint = {};
 	std::string error_message;
 	std::vector<uint8_t> encrypted_data = encrypt_data(current_settings.encryption_password, current_settings.encryption, std::move(data), error_message);
 	if (error_message.empty() && encrypted_data.size() > 0)
-		udp_session_ptr->egress_forwarder->async_send_out(std::move(encrypted_data), udp_session_ptr->egress_target_endpoint);
-	if (udp_session_ptr->egress_target_endpoint != debug_endpoint)
-		debug_endpoint = udp_session_ptr->egress_target_endpoint;
+	{
+		std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&udp_session_ptr->egress_forwarder);
+		std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&udp_session_ptr->egress_target_endpoint);
+		egress_forwarder->async_send_out(std::move(encrypted_data), *egress_target_endpoint);
+	}
 	change_new_port(udp_session_ptr);
 }
 
@@ -470,7 +476,7 @@ void client_mode::fec_find_missings(udp_mappings *udp_session_ptr, fec_control_d
 		for (auto &[i, data] : restored_data)
 		{
 			auto [missed_data_ptr, missed_data_size] = extract_from_container(data);
-			std::shared_ptr<udp::endpoint> udp_endpoint = udp_session_ptr->ingress_source_endpoint;
+			std::shared_ptr<udp::endpoint> udp_endpoint = std::atomic_load(&(udp_session_ptr->ingress_source_endpoint));
 			udp_access_point->async_send_out(std::move(data), missed_data_ptr, missed_data_size, *udp_endpoint);
 			fec_recovery_count++;
 		}
@@ -520,12 +526,13 @@ void client_mode::cleanup_expiring_data_connections()
 
 		if (time_elapsed < CLEANUP_WAITS)
 		{
-			if (udp_session_ptr->egress_forwarder != nullptr)
-				udp_session_ptr->egress_forwarder->stop();
+			if (std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&(udp_session_ptr->egress_forwarder));
+				egress_forwarder != nullptr)
+				egress_forwarder->stop();
 			continue;
 		}
 
-		std::shared_ptr<udp::endpoint> ingress_source_endpoint = udp_session_ptr->ingress_source_endpoint;
+		std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(udp_session_ptr->ingress_source_endpoint));
 		udp_endpoint_map_to_session.erase(*ingress_source_endpoint);
 		expiring_sessions.erase(iter);
 	}
@@ -547,9 +554,14 @@ void client_mode::loop_timeout_sessions()
 			if (expiring_sessions.find(udp_session_ptr) == expiring_sessions.end())
 				expiring_sessions[udp_session_ptr] = right_now();
 
-			old_forwarders.push_back(udp_session_ptr->egress_forwarder);
-			udp_session_ptr->egress_forwarder->stop();
+			std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&(udp_session_ptr->egress_forwarder));
+			old_forwarders.push_back(egress_forwarder);
+			egress_forwarder->stop();
+#if __GNUC__ == 12 && __GNUC_MINOR__ < 3
+			udp_session_ptr->egress_forwarder.store(nullptr);
+#else
 			udp_session_ptr->egress_forwarder = nullptr;
+#endif
 			udp_session_channels.erase(iter);
 			udp_session_ptr->hopping_timestamp.store(LLONG_MAX);
 		}
@@ -599,18 +611,18 @@ void client_mode::loop_hopping_test()
 			continue;
 		}
 
-		udp::endpoint hopping_endpoint = udp_session_ptr->hopping_endpoint;
+		std::shared_ptr<udp::endpoint> hopping_endpoint = std::atomic_load(&(udp_session_ptr->hopping_endpoint));
 		uint32_t iden = udp_session_ptr->wrapper_ptr->get_iden();
 		if (current_settings.fec_data == 0 || current_settings.fec_redundant == 0)
 		{
 			auto [response_packet, response_packet_size] = udp_session_ptr->hopping_wrapper_ptr->create_test_connection_packet(iden);
-			data_sender(udp_session_ptr, hopping_endpoint, std::move(response_packet), response_packet_size);
+			data_sender(udp_session_ptr, *hopping_endpoint, std::move(response_packet), response_packet_size);
 		}
 		else
 		{
 			auto [response_packet, response_packet_size] = udp_session_ptr->hopping_wrapper_ptr->create_small_packet(iden);
 			size_t fec_data_buffer_size = udp_session_ptr->hopping_wrapper_ptr->pack_data_with_fec(feature::test_connection, response_packet.get(), response_packet_size, 0, 0);
-			data_sender(udp_session_ptr, udp_session_ptr->hopping_endpoint, std::move(response_packet), fec_data_buffer_size);
+			data_sender(udp_session_ptr, *hopping_endpoint, std::move(response_packet), fec_data_buffer_size);
 		}
 	}
 	locker_shared.unlock();
@@ -679,7 +691,8 @@ void client_mode::test_before_change(std::shared_ptr<udp_mappings> udp_mappings_
 	uint16_t destination_port_end = current_settings.destination_port_end;
 	asio::error_code ec;
 
-	if (udp_mappings_ptr->egress_hopping_forwarder == nullptr || destination_port_start == destination_port_end)
+	if (std::shared_ptr<forwarder> egress_hopping_forwarder = std::atomic_load(&(udp_mappings_ptr->egress_hopping_forwarder));
+		egress_hopping_forwarder == nullptr || destination_port_start == destination_port_end)
 	{
 		std::shared_ptr<forwarder> udp_forwarder = nullptr;
 		try
@@ -703,27 +716,21 @@ void client_mode::test_before_change(std::shared_ptr<udp_mappings> udp_mappings_
 			return;
 		}
 
+		std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(udp_mappings_ptr->egress_target_endpoint));
 		if (destination_port_start == destination_port_end)
 		{
-			std::shared_lock locker_egress{ udp_mappings_ptr->mutex_egress_endpoint };
-			udp_mappings_ptr->hopping_endpoint = udp_mappings_ptr->egress_target_endpoint;
-			locker_egress.unlock();
+			std::atomic_store(&(udp_mappings_ptr->hopping_endpoint), std::make_shared<udp::endpoint>(*egress_target_endpoint));
 		}
 		else
 		{
-			std::shared_lock locker_egress{ udp_mappings_ptr->mutex_egress_endpoint };
-			uint16_t current_port_number = udp_mappings_ptr->egress_target_endpoint.port();
-			locker_egress.unlock();
+			uint16_t current_port_number = egress_target_endpoint->port();
 			uint16_t new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
 			for (size_t retry_times = 0; new_port_numer == current_port_number && retry_times < RETRY_TIMES; retry_times++)
 			{
 				new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
 			}
-			std::shared_lock locker{ mutex_target_address };
-			asio::ip::address temp_address = *target_address;
-			locker.unlock();
-			udp_mappings_ptr->hopping_endpoint.address(temp_address);
-			udp_mappings_ptr->hopping_endpoint.port(new_port_numer);
+			std::shared_ptr<asio::ip::address> target = std::atomic_load(&(target_address));
+			udp_mappings_ptr->hopping_endpoint = std::make_shared<udp::endpoint>(*target, new_port_numer);
 		}
 
 		std::shared_ptr<forwarder> new_forwarder = udp_forwarder;
@@ -742,23 +749,25 @@ void client_mode::test_before_change(std::shared_ptr<udp_mappings> udp_mappings_
 		}
 
 		new_forwarder->async_receive();
-		if (udp_mappings_ptr->egress_hopping_forwarder != nullptr)
+		if (egress_hopping_forwarder != nullptr)
 		{
-			udp_mappings_ptr->egress_hopping_forwarder->pause(true);
+			egress_hopping_forwarder->pause(true);
 			std::scoped_lock lock_expiring_forwarders{ mutex_expiring_forwarders };
-			expiring_forwarders[udp_mappings_ptr->egress_hopping_forwarder] = right_now();
+			expiring_forwarders[egress_hopping_forwarder] = right_now();
 		}
-		udp_mappings_ptr->egress_hopping_forwarder = new_forwarder;
+		std::atomic_store(&(udp_mappings_ptr->egress_hopping_forwarder), new_forwarder);
 	}
 	else
 	{
-		uint16_t current_port_number = udp_mappings_ptr->hopping_endpoint.port();
+		std::shared_ptr<udp::endpoint> hopping_endpoint = std::atomic_load(&(udp_mappings_ptr->hopping_endpoint));
+		uint16_t current_port_number = hopping_endpoint->port();
 		uint16_t new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
 		for (size_t retry_times = 0; new_port_numer == current_port_number && retry_times < RETRY_TIMES; retry_times++)
 		{
 			new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
 		}
-		udp_mappings_ptr->hopping_endpoint.port(new_port_numer);
+		hopping_endpoint->port(new_port_numer);
+		std::atomic_store(&(udp_mappings_ptr->hopping_endpoint), hopping_endpoint);
 	}
 
 	udp_mappings_ptr->hopping_available.store(hop_status::testing);
@@ -779,15 +788,17 @@ void client_mode::switch_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr
 	udp_mappings_ptr->hopping_timestamp.store(right_now() + current_settings.dynamic_port_refresh);
 	udp_mappings_ptr->hopping_available.store(hop_status::pending);
 
-	{
-		udp_mappings_ptr->egress_previous_target_endpoint = udp_mappings_ptr->egress_target_endpoint;
-		udp_mappings_ptr->egress_target_endpoint = udp_mappings_ptr->hopping_endpoint;
-	}
+	std::atomic_store(&(udp_mappings_ptr->egress_previous_target_endpoint), std::atomic_load(&(udp_mappings_ptr->egress_target_endpoint)));
+	std::atomic_store(&(udp_mappings_ptr->egress_target_endpoint), std::make_shared<udp::endpoint>(*std::atomic_load(&(udp_mappings_ptr->hopping_endpoint))));
 
-	std::shared_ptr<forwarder> new_forwarder = udp_mappings_ptr->egress_hopping_forwarder;
-	std::shared_ptr<forwarder> old_forwarder = udp_mappings_ptr->egress_forwarder;
-	udp_mappings_ptr->egress_forwarder = new_forwarder;
-	udp_mappings_ptr->egress_hopping_forwarder.reset();
+	std::shared_ptr<forwarder> new_forwarder = std::atomic_load(&(udp_mappings_ptr->egress_hopping_forwarder));
+	std::shared_ptr<forwarder> old_forwarder = std::atomic_load(&(udp_mappings_ptr->egress_forwarder));
+	std::atomic_store(&(udp_mappings_ptr->egress_forwarder), new_forwarder);
+#if __GNUC__ == 12 && __GNUC_MINOR__ < 3
+	udp_mappings_ptr->egress_hopping_forwarder.store(nullptr);
+#else
+	udp_mappings_ptr->egress_hopping_forwarder = nullptr;
+#endif
 
 	std::scoped_lock lock_expiring_forwarders{ mutex_expiring_forwarders };
 	if (expiring_forwarders.find(old_forwarder) == expiring_forwarders.end())
@@ -819,7 +830,7 @@ void client_mode::verify_testing_response(std::shared_ptr<udp_mappings> udp_sess
 	if (iden != udp_session_ptr->wrapper_ptr->get_iden())
 		return;
 
-	if (udp_session_ptr->egress_hopping_forwarder != nullptr &&
+	if (std::atomic_load(&(udp_session_ptr->egress_hopping_forwarder)) != nullptr &&
 		udp_session_ptr->hopping_available.load() == hop_status::testing)
 	{
 		std::unique_lock locker{ mutex_hopping_sessions };

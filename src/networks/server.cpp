@@ -138,9 +138,9 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 		}
 	}
 
-	if (std::shared_ptr<udp::endpoint> ingress_source_endpoint = udp_session_ptr->ingress_source_endpoint;
+	if (std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(udp_session_ptr->ingress_source_endpoint));
 		ingress_source_endpoint == nullptr || *ingress_source_endpoint != peer)
-		udp_session_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
+		std::atomic_store(&(udp_session_ptr->ingress_source_endpoint), std::make_shared<udp::endpoint>(peer));
 
 	switch (feature_value)
 	{
@@ -180,7 +180,7 @@ void server_mode::udp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t
 	if (current_settings.fec_data == 0 || current_settings.fec_redundant == 0)
 	{
 		size_t packed_data_size = udp_session_ptr->wrapper_ptr->pack_data(feature::raw_data, data.get(), data_size);
-		std::shared_ptr<udp::endpoint> ingress_source_endpoint = udp_session_ptr->ingress_source_endpoint;
+		std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(udp_session_ptr->ingress_source_endpoint));
 		data_sender(udp_session_ptr.get(), *ingress_source_endpoint, std::move(data), packed_data_size);
 	}
 	else
@@ -440,7 +440,7 @@ void server_mode::fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, featu
 	fec_controllor.fec_snd_cache.emplace_back(clone_into_pair(data.get(), data_size));
 
 	size_t fec_data_buffer_size = udp_session_ptr->wrapper_ptr->pack_data_with_fec(feature_value, data.get(), data_size, fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
-	std::shared_ptr<udp::endpoint> ingress_source_endpoint = udp_session_ptr->ingress_source_endpoint;
+	std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(udp_session_ptr->ingress_source_endpoint));
 	data_sender(udp_session_ptr.get(), *ingress_source_endpoint, std::move(data), fec_data_buffer_size);
 
 	if (fec_controllor.fec_snd_cache.size() == current_settings.fec_data)
@@ -564,7 +564,7 @@ void server_mode::loop_keep_alive()
 		if (current_settings.fec_data == 0 || current_settings.fec_redundant == 0)
 		{
 			auto [response_packet, response_packet_size] = udp_session_ptr->wrapper_ptr->create_keep_alive_packet();
-			std::shared_ptr<udp::endpoint> ingress_source_endpoint = udp_session_ptr->ingress_source_endpoint;
+			std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(udp_session_ptr->ingress_source_endpoint));
 			data_sender(udp_session_ptr.get(), *ingress_source_endpoint, std::move(response_packet), response_packet_size);
 		}
 		else
