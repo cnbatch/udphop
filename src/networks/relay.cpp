@@ -1023,7 +1023,7 @@ void relay_mode::test_before_change(std::shared_ptr<udp_mappings> udp_mappings_p
 				new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
 			}
 			std::shared_ptr<asio::ip::address> target = std::atomic_load(&(target_address));
-			udp_mappings_ptr->hopping_endpoint = std::make_shared<udp::endpoint>(*target, new_port_numer);
+			std::atomic_store(&(udp_mappings_ptr->hopping_endpoint), std::make_shared<udp::endpoint>(*target, new_port_numer));
 		}
 
 		std::shared_ptr<forwarder> new_forwarder = udp_forwarder;
