@@ -499,11 +499,11 @@ void client_mode::cleanup_expiring_forwarders()
 		int64_t time_elapsed = calculate_difference(time_right_now, expire_time);
 
 		if (time_elapsed > CLEANUP_WAITS / 3 &&
-			time_elapsed <= CLEANUP_WAITS / 3 * 2 &&
+			time_elapsed <= CLEANUP_WAITS * 2 / 3 &&
 			forwarder_ptr != nullptr)
 			forwarder_ptr->pause(true);
 
-		if (time_elapsed > CLEANUP_WAITS / 3 * 2 &&
+		if (time_elapsed > CLEANUP_WAITS * 2 / 3 &&
 			forwarder_ptr != nullptr)
 			forwarder_ptr->stop();
 

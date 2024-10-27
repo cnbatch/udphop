@@ -344,7 +344,7 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 {
 	if (error)
 	{
-		if (!connection_socket.is_open())
+		if (error == asio::error::operation_aborted || !connection_socket.is_open())
 			return;
 	}
 
@@ -396,6 +396,9 @@ void udp_client::pause(bool set_as_pause)
 
 void udp_client::stop()
 {
+	bool expect = true;
+	if (stopped.compare_exchange_strong(expect, true))
+		return;
 	stopped.store(true);
 	callback = empty_udp_callback;
 	if (connection_socket.is_open())
@@ -544,7 +547,10 @@ void udp_client::start_receive()
 
 	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(BUFFER_SIZE);
 	uint8_t *buffer_raw_ptr = buffer_cache.get();
-	connection_socket.async_receive_from(asio::buffer(buffer_raw_ptr, BUFFER_SIZE), incoming_endpoint,
+	auto asio_buffer = asio::buffer(buffer_raw_ptr, BUFFER_SIZE);
+	if (!connection_socket.is_open())
+		return;
+	connection_socket.async_receive_from(asio_buffer, incoming_endpoint,
 		[buffer = std::move(buffer_cache), this](const asio::error_code &error, std::size_t bytes_transferred) mutable
 		{
 			handle_receive(std::move(buffer), error, bytes_transferred);
@@ -555,7 +561,7 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 {
 	if (error)
 	{
-		if (!stopped.load() && !paused.load() && connection_socket.is_open())
+		if (error != asio::error::operation_aborted && !stopped.load() && !paused.load() && connection_socket.is_open())
 			start_receive();
 		return;
 	}

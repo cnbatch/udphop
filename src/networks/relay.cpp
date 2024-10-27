@@ -748,11 +748,11 @@ void relay_mode::cleanup_expiring_data_connections()
 		std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&udp_session_ptr->egress_forwarder);
 
 		if (time_elapsed > CLEANUP_WAITS / 3 &&
-			time_elapsed <= CLEANUP_WAITS / 3 * 2 &&
+			time_elapsed <= CLEANUP_WAITS * 2 / 3 &&
 			egress_forwarder != nullptr)
 			egress_forwarder->pause(true);
 
-		if (time_elapsed > CLEANUP_WAITS / 3 * 2 &&
+		if (time_elapsed > CLEANUP_WAITS * 2 / 3 &&
 			egress_forwarder != nullptr)
 			egress_forwarder->stop();
 
