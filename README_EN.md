@@ -101,9 +101,10 @@ encryption_algorithm=AES-GCM
 | Name                | Possible Values     | Required | Remarks |
 | ----                | ----                | ----     | ----    |
 | mode                | client<br>server    | Yes      | Choose between client and server mode |
+| listen_on | domain name or IP address |No|domain name / IP address only. Multiple addresses should be comma-separated.|
 | listen_port         | 1 - 65535           | Yes      | Specify the port range when running as a server |
 | destination_port    | 1 - 65535           | Yes      | Specify the port range when running as a client |
-| destination_address | IP address, domain name | Yes   | When inputting an IPv6 address, no need for square brackets |
+| destination_address | IP address, domain name | Yes   | When inputting an IPv6 address, no need for square brackets. Multiple addresses should be comma-separated.|
 | dport_refresh       | 20 - 65535          | No       | Unit: seconds. Default value is 60 seconds. If less than 20 seconds, it will be considered as 20 seconds; if greater than 65535, it will be considered as 65536 seconds |
 | encryption_algorithm| AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20 | No | Select from AES-256-GCM-AEAD, AES-256-OCB-AEAD, ChaCha20-Poly1305, XChaCha20-Poly1305 |
 | encryption_password | Any characters      | Depending on situation | Required when setting encryption_algorithm |

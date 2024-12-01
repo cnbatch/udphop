@@ -209,8 +209,8 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 	}
 	default:
 	{
-		iv_raw[0] = simple_hashing::xor_u8(data_ptr, length);
-		iv_raw[1] = simple_hashing::checksum8(data_ptr, length);
+		thread_local simple_hashing checksum_hash;
+		iv_raw = checksum_hash.checksum16(data_ptr, length);
 		cipher_length = length;
 		no_encryption = true;
 		break;
@@ -219,8 +219,7 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 
 	if (cipher_length + constant_values::iv_checksum_block_size > iv_raw.size())
 	{
-		data_ptr[cipher_length] = iv_raw[0];
-		data_ptr[cipher_length + 1] = iv_raw[1];
+		*(uint16_t *)(data_ptr + cipher_length) = *(uint16_t *)iv_raw.data();
 		cipher_length += constant_values::iv_checksum_block_size;
 	}
 
@@ -277,8 +276,8 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	}
 	default:
 	{
-		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, length);
-		uint8_t second_hash = simple_hashing::checksum8(data_ptr, length);
+		thread_local simple_hashing checksum_hash;
+		iv_raw = checksum_hash.checksum16(data_ptr, length);
 		cipher_length = length;
 		no_encryption = true;
 		cipher_cache.resize(cipher_length + constant_values::iv_checksum_block_size);
@@ -289,8 +288,7 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 
 	if (cipher_cache.size() > iv_raw.size())
 	{
-		cipher_cache[cipher_length] = iv_raw[0];
-		cipher_cache[cipher_length + 1] = iv_raw[1];
+		*(uint16_t*)(cipher_cache.data() + cipher_length) = *(uint16_t*)iv_raw.data();
 	}
 
 	if (no_encryption)
@@ -343,16 +341,15 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	}
 	default:
 	{
-		iv_raw[0] = simple_hashing::xor_u8(input_data.data(), input_data.size());
-		iv_raw[1] = simple_hashing::checksum8(input_data.data(), input_data.size());
+		thread_local simple_hashing checksum_hash;
+		iv_raw = checksum_hash.checksum16(input_data.data(), input_data.size());
 		break;
 	}
 	};
 
 	const size_t cipher_length = input_data.size();
 	input_data.resize(cipher_length + constant_values::iv_checksum_block_size);
-	input_data[cipher_length] = iv_raw[0];
-	input_data[cipher_length + 1] = iv_raw[1];
+	*(uint16_t*)(input_data.data() + cipher_length) = *(uint16_t*)iv_raw.data();
 
 	if (no_encryption)
 		xor_forward(input_data);
@@ -369,9 +366,7 @@ std::pair<std::string, size_t> decrypt_data(const std::string &password, encrypt
 	int input_length = length - constant_values::iv_checksum_block_size;
 	std::array<uint8_t, 2> iv_raw{};
 	std::string error_message;
-
-	iv_raw[0] = data_ptr[length - 2];
-	iv_raw[1] = data_ptr[length - 1];
+	*(uint16_t*)iv_raw.data() = *(uint16_t*)(data_ptr + input_length);
 
 	switch (mode)
 	{
@@ -406,11 +401,12 @@ std::pair<std::string, size_t> decrypt_data(const std::string &password, encrypt
 	default:
 	{
 		xor_backward(data_ptr, length);
-		data_length = length - constant_values::iv_checksum_block_size;
-		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, data_length);
-		uint8_t second_hash = simple_hashing::checksum8(data_ptr, data_length);
+		*(uint16_t*)iv_raw.data() = *(uint16_t*)(data_ptr + input_length);
+		data_length = input_length;
+		thread_local simple_hashing checksum_hash;
+		std::array<uint8_t, 2> checksum16_value = checksum_hash.checksum16(data_ptr, data_length);
 
-		if (first_hash != data_ptr[data_length] || second_hash != data_ptr[data_length + 1])
+		if (checksum16_value != iv_raw)
 			error_message = "checksum incorrect";
 		break;
 	}
@@ -430,8 +426,7 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	int data_length = length - constant_values::iv_checksum_block_size;
 	std::vector<uint8_t> data_cache((const uint8_t *)data_ptr, (const uint8_t *)data_ptr + data_length);
 	std::array<uint8_t, 2> iv_raw{};
-	iv_raw[0] = ((const uint8_t *)data_ptr)[length - 2];
-	iv_raw[1] = ((const uint8_t *)data_ptr)[length - 1];
+	*(uint16_t*)iv_raw.data() = *(uint16_t*)(((const uint8_t*)data_ptr) + data_length);
 
 	switch (mode)
 	{
@@ -468,12 +463,11 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 		data_cache.resize(length);
 		std::copy_n((const uint8_t *)data_ptr, length, data_cache.begin());
 		xor_backward(data_cache);
-		iv_raw[0] = data_cache[length - 2];
-		iv_raw[1] = data_cache[length - 1];
+		*(uint16_t*)iv_raw.data() = *(uint16_t*)(data_cache.data() + data_length);
 		data_cache.resize(data_length);
-		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, data_length);
-		uint8_t second_hash = simple_hashing::checksum8(data_ptr, data_length);
-		if (first_hash != iv_raw[0] || second_hash != iv_raw[1])
+		thread_local simple_hashing checksum_hash;
+		std::array<uint8_t, 2> checksum16_value = checksum_hash.checksum16(data_cache.data(), data_length);
+		if (checksum16_value != iv_raw)
 			error_message = "Checksum incorrect";
 		break;
 	}
@@ -490,10 +484,10 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 		return std::vector<uint8_t>{};
 	}
 
+	size_t data_length = input_data.size() - constant_values::iv_checksum_block_size;
 	std::array<uint8_t, 2> iv_raw{};
-	iv_raw[0] = input_data[input_data.size() - 2];
-	iv_raw[1] = input_data[input_data.size() - 1];
-	input_data.resize(input_data.size() - constant_values::iv_checksum_block_size);
+	*(uint16_t*)iv_raw.data() = *(uint16_t*)(input_data.data() + data_length);
+	input_data.resize(data_length);
 
 	switch (mode)
 	{
@@ -536,11 +530,10 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	default:
 	{
 		xor_backward(input_data);
-		iv_raw[0] = input_data[input_data.size() - 2];
-		iv_raw[1] = input_data[input_data.size() - 1];
-		uint8_t first_hash = simple_hashing::xor_u8(input_data.data(), input_data.size());
-		uint8_t second_hash = simple_hashing::checksum8(input_data.data(), input_data.size());
-		if (first_hash != iv_raw[0] || second_hash != iv_raw[1])
+		*(uint16_t*)iv_raw.data() = *(uint16_t*)(input_data.data() + data_length);
+		thread_local simple_hashing checksum_hash;
+		std::array<uint8_t, 2> checksum16_value = checksum_hash.checksum16(input_data.data(), input_data.size());
+		if (checksum16_value != iv_raw)
 			error_message = "Checksum Incorrect";
 		break;
 	}

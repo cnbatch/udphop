@@ -8,7 +8,6 @@
 class relay_mode
 {
 	asio::io_context &io_context;
-	asio::io_context &network_io;
 	user_settings current_settings;
 	std::unique_ptr<rfc8489::stun_header> stun_header;
 	std::atomic<uint16_t> external_ipv4_port;
@@ -18,8 +17,8 @@ class relay_mode
 	std::array<uint8_t, 16> external_ipv6_address;
 	const std::array<uint8_t, 16> zero_value_array;
 
-	std::unordered_map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
-	std::unordered_map<asio::ip::port_type, std::shared_ptr<udp_mappings>> udp_zero_sessions;
+	std::vector<std::unique_ptr<udp_server>> udp_servers;
+	std::unordered_map<udp_server*, std::shared_ptr<udp_mappings>> udp_zero_sessions;
 
 	std::shared_mutex mutex_udp_session_channels;
 	std::unordered_map<uint32_t, std::shared_ptr<udp_mappings>> udp_session_channels;
@@ -33,9 +32,9 @@ class relay_mode
 	std::unordered_map<std::shared_ptr<forwarder>, int64_t> expiring_forwarders;
 
 #ifdef __cpp_lib_atomic_shared_ptr
-	std::atomic<std::shared_ptr<asio::ip::address>> target_address;
+	std::deque<std::atomic<std::shared_ptr<asio::ip::address>>> target_address;
 #else
-	std::shared_ptr<asio::ip::address> target_address;
+	std::deque<std::shared_ptr<asio::ip::address>> target_address;
 #endif
 
 	asio::steady_timer timer_expiring_sessions;
@@ -45,29 +44,41 @@ class relay_mode
 	asio::steady_timer timer_keep_alive_egress;
 	asio::steady_timer timer_status_log;
 	ttp::task_group_pool &sequence_task_pool;
+	ttp::task_thread_pool *listener_parallels;
+	ttp::task_thread_pool *forwarder_parallels;
 
 	std::unique_ptr<udp::endpoint> udp_target;
 	std::atomic<size_t> fec_recovery_count_ingress;
 	std::atomic<size_t> fec_recovery_count_egress;
 
-	void make_nzero_sessions();
-	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number);
-	void udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, const udp::endpoint &peer, asio::ip::port_type port_number);
+	std::mutex mutex_decryptions_from_listener;
+	std::list<std::future<udp_mappings::decryption_result_listener>> decryptions_from_listener;
+	std::atomic<int> listener_decryption_task_count;
 
-	void udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type port_number);
-	void udp_listener_response_test_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint& peer, asio::ip::port_type port_number);
+	void make_nzero_sessions();
+	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, udp_server *listener_ptr);
+	void udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, const udp::endpoint &peer, udp_server *listener_ptr);
+	void sequential_extract();
+
+	void udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, udp_server *listener_ptr);
+	void udp_listener_response_test_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint& peer, udp_server *listener_ptr);
 
 	void udp_forwarder_incoming_to_udp(std::weak_ptr<udp_mappings> udp_session_weak_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type local_port_number);
 	void udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, asio::ip::port_type local_port_number);
+	void udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappings> udp_session_ptr);
 
-	bool get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
-	bool update_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
+	std::unique_ptr<udp::endpoint> get_udp_target(std::shared_ptr<forwarder> target_connector, size_t index);
+	std::unique_ptr<udp::endpoint> update_udp_target(std::shared_ptr<forwarder> target_connector, size_t index);
 	void save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_port, const std::array<uint8_t, 16> &ipv6_address, uint16_t ipv6_port);
-	void data_sender_via_listener(udp_mappings *udp_session_ptr, const udp::endpoint &peer, std::unique_ptr<uint8_t[]> data, size_t data_size);
-	void data_sender_via_listener(udp_mappings *udp_session_ptr, const udp::endpoint &peer, std::vector<uint8_t> &&data);
+	void data_sender_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	void data_sender_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr);
+	void parallel_encrypt_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, std::shared_ptr<udp::endpoint> peer, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	void parallel_decrypt_via_listener(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, udp_server *listener_ptr);
 	void data_sender_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void data_sender_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
-	void data_sender_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, std::vector<uint8_t> &&data);
+	void data_sender_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr);
+	void parallel_encrypt_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, std::shared_ptr<udp::endpoint> peer, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	void parallel_decrypt_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void fec_maker_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void fec_maker_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void fec_find_missings_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
@@ -97,9 +108,8 @@ public:
 	relay_mode(const relay_mode &) = delete;
 	relay_mode& operator=(const relay_mode &) = delete;
 
-	relay_mode(asio::io_context &io_context_ref, asio::io_context &net_io, ttp::task_group_pool& seq_task_pool, const user_settings &settings)
+	relay_mode(asio::io_context &io_context_ref, ttp::task_group_pool &seq_task_pool, task_pool_colloector &task_pools, const user_settings &settings)
 		: io_context(io_context_ref),
-		network_io(net_io),
 		timer_expiring_sessions(io_context),
 		timer_find_timeout(io_context),
 		timer_stun(io_context),
@@ -107,6 +117,8 @@ public:
 		timer_keep_alive_egress(io_context),
 		timer_status_log(io_context),
 		sequence_task_pool(seq_task_pool),
+		listener_parallels(task_pools.listener_parallels),
+		forwarder_parallels(task_pools.forwarder_parallels),
 		external_ipv4_port(0),
 		external_ipv4_address(0),
 		external_ipv6_port(0),
@@ -116,7 +128,6 @@ public:
 
 	relay_mode(relay_mode &&existing_server) noexcept
 		: io_context(existing_server.io_context),
-		network_io(existing_server.network_io),
 		timer_expiring_sessions(std::move(existing_server.timer_expiring_sessions)),
 		timer_find_timeout(std::move(existing_server.timer_find_timeout)),
 		timer_stun(std::move(existing_server.timer_stun)),
@@ -124,6 +135,8 @@ public:
 		timer_keep_alive_egress(std::move(existing_server.timer_keep_alive_egress)),
 		timer_status_log(std::move(existing_server.timer_status_log)),
 		sequence_task_pool(existing_server.sequence_task_pool),
+		listener_parallels(existing_server.listener_parallels),
+		forwarder_parallels(existing_server.forwarder_parallels),
 		external_ipv4_port(existing_server.external_ipv4_port.load()),
 		external_ipv4_address(existing_server.external_ipv4_address.load()),
 		external_ipv6_port(existing_server.external_ipv6_port.load()),

@@ -8,6 +8,7 @@
 #include <vector>
 #include <string>
 #include <string_view>
+#include <set>
 #include <map>
 #include <random>
 #include <filesystem>
@@ -15,6 +16,7 @@
 #include <format>
 #endif
 #include "aead.hpp"
+#include "../3rd_party/thread_pool.hpp"
 
 constexpr std::string_view app_name = "udphop";
 
@@ -88,12 +90,6 @@ T generate_random_number()
 
 struct user_settings
 {
-	uint16_t listen_port = 0;
-	uint16_t listen_port_start = 0;
-	uint16_t listen_port_end = 0;
-	uint16_t destination_port = 0;
-	uint16_t destination_port_start = 0;
-	uint16_t destination_port_end = 0;
 	uint16_t dynamic_port_refresh = constant_values::dport_refresh_default;	// seconds
 	uint16_t keep_alive = 0;	// seconds
 	uint16_t timeout = 0;	 // seconds
@@ -102,8 +98,10 @@ struct user_settings
 	encryption_mode encryption = encryption_mode::empty;
 	running_mode mode = running_mode::empty;
 	ip_only_options ip_version_only = ip_only_options::not_set;
-	std::string listen_on;
-	std::string destination_address;
+	std::vector<std::string> listen_on;
+	std::vector<uint16_t> listen_ports;
+	std::vector<uint16_t> destination_ports;
+	std::vector<std::string> destination_address_list;
 	std::string encryption_password;
 	std::string stun_server;
 	std::filesystem::path log_directory;
@@ -123,10 +121,24 @@ struct fec_container
 };
 #pragma pack(pop)
 
+struct task_pool_colloector
+{
+	ttp::task_thread_pool *parallel_encryption_pool;
+	ttp::task_thread_pool *parallel_decryption_pool;
+	ttp::task_thread_pool *listener_parallels;
+	ttp::task_thread_pool *forwarder_parallels;
+};
+
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
+std::set<uint16_t> port_range_to_vector(const std::string &input_str, std::vector<std::string> &error_msg, const std::string &acting_role);
+std::vector<uint16_t> string_to_port_numbers(const std::string& input_str, std::vector<std::string>& error_msg, const std::string& acting_role);
+std::vector<std::string> string_to_address_list(const std::string &input_str);
+bool is_continuous(const std::vector<uint16_t> &numbers);
 
 uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num);
+uint16_t generate_new_port_number(const std::vector<uint16_t> &port_list);
 uint32_t generate_token_number();
+size_t randomly_pick_index(size_t container_size);
 
 template<typename T>
 T calculate_difference(T number_left, T number_right)

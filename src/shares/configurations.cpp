@@ -117,40 +117,11 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				break;
 
 			case strhash("listen_on"):
-				current_settings->listen_on = original_value;
+				current_settings->listen_on = string_to_address_list(original_value);
 				break;
 
 			case strhash("listen_port"):
-				if (auto pos = value.find("-"); pos == std::string::npos)
-				{
-					if (auto port_number = std::stoi(value); port_number > 0 && port_number < USHRT_MAX)
-						current_settings->listen_port = static_cast<uint16_t>(port_number);
-					else
-						error_msg.emplace_back("invalid listen_port number: " + value);
-				}
-				else
-				{
-					std::string start_port = value.substr(0, pos);
-					std::string end_port = value.substr(pos + 1);
-					trim(start_port);
-					trim(end_port);
-
-					if (start_port.empty() || end_port.empty())
-					{
-						error_msg.emplace_back("invalid listen_port range: " + value);
-						break;
-					}
-
-					if (auto port_number = std::stoi(start_port); port_number > 0 && port_number < USHRT_MAX)
-						current_settings->listen_port_start = static_cast<uint16_t>(port_number);
-					else
-						error_msg.emplace_back("invalid listen_port_start number: " + start_port);
-
-					if (auto port_number = std::stoi(end_port); port_number > 0 && port_number < USHRT_MAX)
-						current_settings->listen_port_end = static_cast<uint16_t>(port_number);
-					else
-						error_msg.emplace_back("invalid listen_port_end number: " + end_port);
-				}
+				current_settings->listen_ports = string_to_port_numbers(value, error_msg, "listen");
 				break;
 
 			case strhash("dport_refresh"):	// client only
@@ -163,41 +134,12 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				break;
 
 			case strhash("destination_port"):
-				if (auto pos = value.find("-"); pos == std::string::npos)
-				{
-					if (auto port_number = std::stoi(value); port_number > 0 && port_number < 65536)
-						current_settings->destination_port = static_cast<uint16_t>(port_number);
-					else
-						error_msg.emplace_back("invalid listen_port number: " + value);
-				}
-				else
-				{
-					std::string start_port = value.substr(0, pos);
-					std::string end_port = value.substr(pos + 1);
-					trim(start_port);
-					trim(end_port);
-
-					if (start_port.empty() || end_port.empty())
-					{
-						error_msg.emplace_back("invalid destination_port range: " + value);
-						break;
-					}
-
-					if (auto port_number = std::stoi(start_port); port_number > 0 && port_number < USHRT_MAX)
-						current_settings->destination_port_start = static_cast<uint16_t>(port_number);
-					else
-						error_msg.emplace_back("invalid destination_port_start number: " + start_port);
-
-					if (auto port_number = std::stoi(end_port); port_number > 0 && port_number < USHRT_MAX)
-						current_settings->destination_port_end = static_cast<uint16_t>(port_number);
-					else
-						error_msg.emplace_back("invalid destination_port_end number: " + end_port);
-				}
+				current_settings->destination_ports = string_to_port_numbers(value, error_msg, "destination");
 				break;
 
 
 			case strhash("destination_address"):
-				current_settings->destination_address = value;
+				current_settings->destination_address_list = string_to_address_list(value);
 				break;
 
 			case strhash("encryption_password"):
@@ -380,7 +322,7 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		copy_settings(*current_user_settings.egress, current_user_settings);
 
 	if ((current_user_settings.mode == running_mode::server || current_user_settings.mode == running_mode::client) &&
-		current_user_settings.destination_address.empty())
+		current_user_settings.destination_address_list.empty())
 		error_msg.emplace_back("invalid destination_address setting");
 
 	if (current_user_settings.encryption != encryption_mode::empty &&
@@ -394,14 +336,8 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 
 	if (current_user_settings.mode == running_mode::client)
 	{
-		if (current_user_settings.listen_port == 0)
+		if (current_user_settings.listen_ports.empty())
 			error_msg.emplace_back("listen_port is not set");
-
-		if (current_user_settings.listen_port_start > 0)
-			error_msg.emplace_back("listen_port_start should not be set");
-
-		if (current_user_settings.listen_port_end > 0)
-			error_msg.emplace_back("listen_port_end should not be set");
 
 		verify_client_destination(current_user_settings, error_msg);
 	}
@@ -410,14 +346,14 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 	{
 		verify_server_listen_port(current_user_settings, error_msg);
 
-		if (current_user_settings.destination_port == 0)
+		if (current_user_settings.destination_ports.empty())
 			error_msg.emplace_back("destination_port is not set");
 
-		if (current_user_settings.destination_port_start > 0)
-			error_msg.emplace_back("destination_port_start should not be set");
+		if (current_user_settings.destination_ports.size() > 1)
+			error_msg.emplace_back("too many destination_port");
 
-		if (current_user_settings.destination_port_end > 0)
-			error_msg.emplace_back("destination_port_end should not be set");
+		if (current_user_settings.destination_address_list.size() != 1)
+			error_msg.emplace_back("invalid destination_address setting");
 	}
 
 	if (current_user_settings.mode == running_mode::relay_ingress)
@@ -431,8 +367,11 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 
 	if (!current_user_settings.stun_server.empty() && current_user_settings.mode != running_mode::relay)
 	{
-		if (current_user_settings.listen_port == 0)
+		if (current_user_settings.listen_ports.size() > 1)
 			error_msg.emplace_back("do not specify multiple listen ports when STUN Server is set");
+
+		if (current_user_settings.listen_on.size() > 1)
+			error_msg.emplace_back("do not specify multiple listen addresses when STUN Server is set");
 	}
 
 	if (!current_user_settings.log_directory.empty() &&
@@ -509,38 +448,13 @@ void copy_settings(user_settings &inner, user_settings &outter)
 
 void verify_server_listen_port(user_settings &current_user_settings, std::vector<std::string>& error_msg)
 {
-	bool use_dynamic_ports = current_user_settings.listen_port_start || current_user_settings.listen_port_end;
-	if (use_dynamic_ports)
-	{
-		if (current_user_settings.listen_port_start == 0)
-			error_msg.emplace_back("listen_port_start is missing");
-
-		if (current_user_settings.listen_port_end == 0)
-			error_msg.emplace_back("listen_port_end is missing");
-
-		if (current_user_settings.listen_port_start > 0 && current_user_settings.listen_port_end > 0)
-		{
-			if (current_user_settings.listen_port_end == current_user_settings.listen_port_start)
-				error_msg.emplace_back("listen_port_start is equal to listen_port_end");
-
-			if (current_user_settings.listen_port_end < current_user_settings.listen_port_start)
-				error_msg.emplace_back("listen_port_end is less than listen_port_start");
-		}
-	}
-	else
-	{
-		if (current_user_settings.listen_port == 0)
-			error_msg.emplace_back("listen_port is not set");
-	}
+	if (current_user_settings.listen_ports.empty())
+		error_msg.emplace_back("listen_port is not set");
 }
 
 void verify_client_destination(user_settings &current_user_settings, std::vector<std::string>& error_msg)
 {
-	if (current_user_settings.destination_port == 0 &&
-		(current_user_settings.destination_port_start == 0 ||
-			current_user_settings.destination_port_end == 0))
-	{
+	if (current_user_settings.destination_ports.empty())
 		error_msg.emplace_back("destination port setting incorrect");
-	}
 }
 

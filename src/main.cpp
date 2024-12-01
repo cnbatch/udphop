@@ -16,7 +16,7 @@
 int main(int argc, char *argv[])
 {
 #ifdef __cpp_lib_format
-	std::cout << std::format("{} version 20241027\n", app_name);
+	std::cout << std::format("{} version 20241201\n", app_name);
 	if (argc <= 1)
 	{
 		std::cout << std::format("Usage: {} config1.conf\n", app_name);
@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 #else
-	std::cout << app_name << " version 20241027\n";
+	std::cout << app_name << " version 20241201\n";
 	if (argc <= 1)
 	{
 		std::cout << "Usage: " << app_name << " config1.conf\n";
@@ -35,6 +35,8 @@ int main(int argc, char *argv[])
 
 	uint16_t thread_group_count = 2;
 	int io_thread_count = std::thread::hardware_concurrency() == 1 ? 1 : 2;
+	std::unique_ptr<ttp::task_thread_pool> parallel_pool_1;
+	std::unique_ptr<ttp::task_thread_pool> parallel_pool_2;
 	if (std::thread::hardware_concurrency() > 2)
 	{
 		auto thread_counts = std::thread::hardware_concurrency();
@@ -42,10 +44,23 @@ int main(int argc, char *argv[])
 		io_thread_count = (int)round(log2(thread_counts));
 	}
 
+	if (std::thread::hardware_concurrency() > 1)
+	{
+		parallel_pool_1 = std::make_unique<ttp::task_thread_pool>();
+		parallel_pool_2 = std::make_unique<ttp::task_thread_pool>();
+	}
+
 	ttp::task_group_pool task_groups{ thread_group_count };
+	task_pool_colloector task_pools =
+	{
+		.parallel_encryption_pool = parallel_pool_1.get(),
+		.parallel_decryption_pool = parallel_pool_2.get(),
+		.listener_parallels = parallel_pool_1.get(),
+		.forwarder_parallels = parallel_pool_2.get()
+	};
 
 	asio::io_context ioc{ io_thread_count };
-	asio::io_context network_io{ io_thread_count };
+	//asio::io_context network_io{ io_thread_count };
 
 	std::vector<client_mode> clients;
 	std::vector<relay_mode> relays;
@@ -103,13 +118,13 @@ int main(int argc, char *argv[])
 		switch (settings.mode)
 		{
 		case running_mode::client:
-			clients.emplace_back(client_mode(ioc, network_io, task_groups, settings));
+			clients.emplace_back(client_mode(ioc, /*network_io,*/ task_groups, task_pools, settings));
 			break;
 		case running_mode::relay:
-			relays.emplace_back(relay_mode(ioc, network_io, task_groups, settings));
+			relays.emplace_back(relay_mode(ioc, /*network_io,*/ task_groups, task_pools, settings));
 			break;
 		case running_mode::server:
-			servers.emplace_back(server_mode(ioc, network_io, task_groups, settings));
+			servers.emplace_back(server_mode(ioc, /*network_io,*/ task_groups, task_pools, settings));
 			break;
 		default:
 			break;
@@ -139,7 +154,7 @@ int main(int argc, char *argv[])
 
 	if (!error_found && started_up)
 	{
-		std::thread([&] { network_io.run(); }).detach();
+		//std::thread([&] { network_io.run(); }).detach();
 		ioc.run();
 	}
 

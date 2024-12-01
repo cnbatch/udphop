@@ -16,7 +16,11 @@ int64_t right_now()
 	return std::chrono::duration_cast<std::chrono::seconds>(right_now.time_since_epoch()).count();
 }
 
-void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3)
+void empty_udp_server_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, udp_server *tmp3)
+{
+}
+
+void empty_udp_client_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3)
 {
 }
 
@@ -365,20 +369,15 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	{
 	case task_type::sequence:
 		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
+			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); },
 			std::move(buffer_cache));
 		break;
 	case task_type::in_place:
-		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, port_number);
+		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, this);
 		break;
 	default:
 		break;
 	}
-}
-
-asio::ip::port_type udp_server::get_port_number()
-{
-	return port_number;
 }
 
 
@@ -400,7 +399,7 @@ void udp_client::stop()
 	if (stopped.compare_exchange_strong(expect, true))
 		return;
 	stopped.store(true);
-	callback = empty_udp_callback;
+	callback = empty_udp_client_callback;
 	if (connection_socket.is_open())
 		this->disconnect();
 }
