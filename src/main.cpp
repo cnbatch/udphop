@@ -16,7 +16,7 @@
 int main(int argc, char *argv[])
 {
 #ifdef __cpp_lib_format
-	std::cout << std::format("{} version 20241201\n", app_name);
+	std::cout << std::format("{} version 20250112\n", app_name);
 	if (argc <= 1)
 	{
 		std::cout << std::format("Usage: {} config1.conf\n", app_name);
@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 #else
-	std::cout << app_name << " version 20241201\n";
+	std::cout << app_name << " version 20250112\n";
 	if (argc <= 1)
 	{
 		std::cout << "Usage: " << app_name << " config1.conf\n";
@@ -60,7 +60,6 @@ int main(int argc, char *argv[])
 	};
 
 	asio::io_context ioc{ io_thread_count };
-	//asio::io_context network_io{ io_thread_count };
 
 	std::vector<client_mode> clients;
 	std::vector<relay_mode> relays;
@@ -118,13 +117,13 @@ int main(int argc, char *argv[])
 		switch (settings.mode)
 		{
 		case running_mode::client:
-			clients.emplace_back(client_mode(ioc, /*network_io,*/ task_groups, task_pools, settings));
+			clients.emplace_back(client_mode(ioc, task_groups, task_pools, settings));
 			break;
 		case running_mode::relay:
-			relays.emplace_back(relay_mode(ioc, /*network_io,*/ task_groups, task_pools, settings));
+			relays.emplace_back(relay_mode(ioc, task_groups, task_pools, settings));
 			break;
 		case running_mode::server:
-			servers.emplace_back(server_mode(ioc, /*network_io,*/ task_groups, task_pools, settings));
+			servers.emplace_back(server_mode(ioc, task_groups, task_pools, settings));
 			break;
 		default:
 			break;
@@ -154,7 +153,6 @@ int main(int argc, char *argv[])
 
 	if (!error_found && started_up)
 	{
-		//std::thread([&] { network_io.run(); }).detach();
 		ioc.run();
 	}
 

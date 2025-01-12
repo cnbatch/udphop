@@ -62,10 +62,9 @@ bool client_mode::start()
 	{
 		udp_server_callback_t udp_func_ap = std::bind(&client_mode::udp_listener_incoming, this, _1, _2, _3, _4);
 		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_listener, &sequence_task_pool, _1, _2, _3);
-		auto bind_check_limit_func = [this](size_t number) -> bool { return sequence_task_pool.get_listener_network_task_count(number) > TASK_COUNT_LIMIT; };
 		for (size_t i = 0; i < listen_count; i++)
 		{
-			udp_access_points.emplace_back(std::make_unique<udp_server>(io_context, bind_push_func, bind_check_limit_func, listen_on_udp[i], udp_func_ap));
+			udp_access_points.emplace_back(std::make_unique<udp_server>(io_context, bind_push_func, listen_on_udp[i], udp_func_ap));
 		}
 
 		timer_find_timeout.expires_after(FINDER_TIMEOUT_INTERVAL);
@@ -154,9 +153,8 @@ void client_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 	try
 	{
 		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
-		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_forwarder_network_task_count(number) > TASK_COUNT_LIMIT; };
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, udp_session_ptr, udp_func, current_settings.ip_version_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, udp_session_ptr, udp_func, current_settings.ip_version_only);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -358,7 +356,7 @@ void client_mode::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappi
 		{
 			udp_forwarder_incoming_to_udp_unpack(udp_session_ptr, std::move(data), plain_size, peer, local_port_number);
 		}
-		udp_session_ptr->decryptions_from_forwarder.erase(iter);
+		next = udp_session_ptr->decryptions_from_forwarder.erase(iter);
 	}
 
 	if (udp_session_ptr->decryptions_from_forwarder.empty())
@@ -369,7 +367,7 @@ void client_mode::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappi
 		return;
 	std::weak_ptr<udp_mappings> udp_session_ptr_weak = udp_session_ptr;
 	udp_session_ptr->forwarder_decryption_task_count++;
-	sequence_task_pool.push_task(std::this_thread::get_id(),
+	sequence_task_pool.push_task((size_t)udp_session_ptr.get(),
 		[this, udp_session_ptr_weak](std::unique_ptr<uint8_t[]>) { udp_forwarder_incoming_to_udp_unpack(udp_session_ptr_weak.lock()); },
 		std::unique_ptr<uint8_t[]>{});
 }
@@ -465,9 +463,9 @@ void client_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std
 
 void client_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr)
 {
+	udp_session_ptr->forwarder_encryption_task_count--;
 	if (udp_session_ptr == nullptr)
 		return;
-	udp_session_ptr->forwarder_encryption_task_count--;
 	std::unique_lock locker{ udp_session_ptr->mutex_encryptions_via_forwarder };
 	if (udp_session_ptr->encryptions_via_forwarder.empty())
 		return;
@@ -488,7 +486,7 @@ void client_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr)
 				udp_endpoint_ptr == nullptr ? std::atomic_load(&udp_session_ptr->egress_target_endpoint) : udp_endpoint_ptr;
 			egress_forwarder->async_send_out(std::move(data), cipher_size, *egress_target_endpoint);
 		}
-		udp_session_ptr->encryptions_via_forwarder.erase(iter);
+		next = udp_session_ptr->encryptions_via_forwarder.erase(iter);
 	}
 
 	bool is_empty = udp_session_ptr->encryptions_via_forwarder.empty();
@@ -507,12 +505,11 @@ void client_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr)
 
 void client_mode::parallel_encrypt(std::shared_ptr<udp_mappings> udp_session_ptr, std::shared_ptr<udp::endpoint> peer, std::unique_ptr<uint8_t[]> data, size_t data_size)
 {
-	std::function<udp_mappings::encryption_result(std::unique_ptr<uint8_t[]>)> func =
-		[this, peer, data_size](std::unique_ptr<uint8_t[]> data) mutable
-		-> udp_mappings::encryption_result
+	std::function<encryption_result(std::unique_ptr<uint8_t[]>)> func =
+		[this, peer, data_size](std::unique_ptr<uint8_t[]> data) mutable -> encryption_result
 		{
 			auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
-			return { error_message, std::move(data), cipher_size, peer };
+			return { std::move(error_message), std::move(data), cipher_size, peer };
 		};
 
 	auto task_future = parallel_encryption_pool->submit(func, std::move(data));
@@ -525,13 +522,12 @@ void client_mode::parallel_encrypt(std::shared_ptr<udp_mappings> udp_session_ptr
 
 void client_mode::parallel_decrypt(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
 {
-	std::function<udp_mappings::decryption_result_forwarder(std::unique_ptr<uint8_t[]>)> func =
-		[this, data_size, peer, local_port_number](std::unique_ptr<uint8_t[]> data) mutable
-		-> udp_mappings::decryption_result_forwarder
+	std::function<decryption_result_forwarder(std::unique_ptr<uint8_t[]>)> func =
+		[this, data_size, peer, local_port_number](std::unique_ptr<uint8_t[]> data) mutable -> decryption_result_forwarder
 		{
 			uint8_t *data_ptr = data.get();
 			auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
-			return { error_message, std::move(data), plain_size, peer, local_port_number };
+			return { std::move(error_message), std::move(data), plain_size, peer, local_port_number };
 		};
 
 	auto task_future = parallel_decryption_pool->submit(func, std::move(data));
@@ -625,13 +621,7 @@ void client_mode::cleanup_expiring_forwarders()
 
 		int64_t time_elapsed = calculate_difference(time_right_now, expire_time);
 
-		if (time_elapsed > CLEANUP_WAITS / 3 &&
-			time_elapsed <= CLEANUP_WAITS * 2 / 3 &&
-			forwarder_ptr != nullptr)
-			forwarder_ptr->pause(true);
-
-		if (time_elapsed > CLEANUP_WAITS * 2 / 3 &&
-			forwarder_ptr != nullptr)
+		if (time_elapsed > CLEANUP_WAITS / 2 && forwarder_ptr != nullptr)
 			forwarder_ptr->stop();
 
 		if (time_elapsed <= CLEANUP_WAITS)
@@ -827,9 +817,8 @@ void client_mode::test_before_change(std::shared_ptr<udp_mappings> udp_mappings_
 	try
 	{
 		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
-		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_forwarder_network_task_count(number) > TASK_COUNT_LIMIT; };
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming_to_udp, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, udp_mappings_ptr, udp_func, current_settings.ip_version_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, udp_mappings_ptr, udp_func, current_settings.ip_version_only);
 		if (udp_forwarder == nullptr)
 		{
 			udp_mappings_ptr->hopping_timestamp.store(time_right_now + current_settings.dynamic_port_refresh);

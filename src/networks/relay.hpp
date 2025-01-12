@@ -52,13 +52,13 @@ class relay_mode
 	std::atomic<size_t> fec_recovery_count_egress;
 
 	std::mutex mutex_decryptions_from_listener;
-	std::list<std::future<udp_mappings::decryption_result_listener>> decryptions_from_listener;
+	std::deque<std::future<decryption_result_listener>> decryptions_from_listener;
 	std::atomic<int> listener_decryption_task_count;
 
 	void make_nzero_sessions();
 	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, udp_server *listener_ptr);
 	void udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, const udp::endpoint &peer, udp_server *listener_ptr);
-	void sequential_extract();
+	void sequential_extract(udp_server *listener_ptr);
 
 	void udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, udp_server *listener_ptr);
 	void udp_listener_response_test_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint& peer, udp_server *listener_ptr);

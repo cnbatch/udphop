@@ -177,7 +177,7 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 	}
 }
 
-void server_mode::sequential_extract()
+void server_mode::sequential_extract(udp_server *listener_ptr)
 {
 	listener_decryption_task_count--;
 	std::unique_lock locker{ mutex_decryptions_from_listener };
@@ -192,12 +192,12 @@ void server_mode::sequential_extract()
 		auto &task_results = *iter;
 		if (task_results.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
 			break;
-		auto [error_message, data, plain_size, peer, port_number] = task_results.get();
+		auto [error_message, data, plain_size, peer, listener] = task_results.get();
 		if (error_message.empty() && plain_size > 0)
 		{
-			udp_listener_incoming_unpack(std::move(data), plain_size, peer, port_number);
+			udp_listener_incoming_unpack(std::move(data), plain_size, peer, listener);
 		}
-		decryptions_from_listener.erase(iter);
+		next = decryptions_from_listener.erase(iter);
 	}
 
 	if (decryptions_from_listener.empty())
@@ -206,8 +206,8 @@ void server_mode::sequential_extract()
 	if (listener_decryption_task_count.load() > 0)
 		return;
 	listener_decryption_task_count++;
-	sequence_task_pool.push_task(std::this_thread::get_id(),
-		[this](std::unique_ptr<uint8_t[]>) { sequential_extract(); },
+	sequence_task_pool.push_task_listener((size_t)listener_ptr,
+		[this, listener_ptr](std::unique_ptr<uint8_t[]>) { sequential_extract(listener_ptr); },
 		std::unique_ptr<uint8_t[]>{});
 }
 
@@ -354,8 +354,7 @@ bool server_mode::create_new_udp_connection(std::unique_ptr<uint8_t[]> data, con
 		udp_connector_incoming(std::move(input_data), data_size, peer, port_number, udp_session_weak_ptr);
 	};
 	auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
-	auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_forwarder_network_task_count(number) > TASK_COUNT_LIMIT; };
-	std::unique_ptr<udp_client> target_connector = std::make_unique<udp_client>(io_context, bind_push_func, bind_check_limit_func, udp_func_ap, current_settings.ip_version_only);
+	std::unique_ptr<udp_client> target_connector = std::make_unique<udp_client>(io_context, bind_push_func, udp_func_ap, current_settings.ip_version_only);
 
 	asio::error_code ec;
 	if (current_settings.ip_version_only == ip_only_options::ipv4)
@@ -474,8 +473,8 @@ void server_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, con
 
 void server_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr)
 {
-	if (udp_session_ptr == nullptr) return;
 	udp_session_ptr->listener_encryption_task_count--;
+	if (udp_session_ptr == nullptr) return;
 	std::unique_lock locker{ udp_session_ptr->mutex_encryptions_via_listener };
 	if (udp_session_ptr->encryptions_via_listener.empty())
 		return;
@@ -491,7 +490,7 @@ void server_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr)
 		auto [error_message, data, cipher_size, udp_endpoint_ptr] = task_results.get();
 		if (error_message.empty() && cipher_size > 0 && udp_endpoint_ptr != nullptr)
 			udp_session_ptr->ingress_sender.load()->async_send_out(std::move(data), cipher_size, *udp_endpoint_ptr);
-		udp_session_ptr->encryptions_via_listener.erase(iter);
+		next = udp_session_ptr->encryptions_via_listener.erase(iter);
 	}
 
 	if (udp_session_ptr->encryptions_via_listener.empty())
@@ -508,12 +507,11 @@ void server_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr)
 
 void server_mode::parallel_encrypt(std::shared_ptr<udp_mappings> udp_session_ptr, std::shared_ptr<udp::endpoint> peer, std::unique_ptr<uint8_t[]> data, size_t data_size)
 {
-	std::function<udp_mappings::encryption_result(std::unique_ptr<uint8_t[]>)> func =
-		[this, peer, data_size](std::unique_ptr<uint8_t[]> data) mutable
-		-> udp_mappings::encryption_result
+	std::function<encryption_result(std::unique_ptr<uint8_t[]>)> func =
+		[this, peer, data_size](std::unique_ptr<uint8_t[]> data) mutable -> encryption_result
 		{
 			auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
-			return { error_message, std::move(data), cipher_size, peer };
+			return { std::move(error_message), std::move(data), cipher_size, peer };
 		};
 
 	auto task_future = parallel_encryption_pool->submit(func, std::move(data));
@@ -526,13 +524,12 @@ void server_mode::parallel_encrypt(std::shared_ptr<udp_mappings> udp_session_ptr
 
 void server_mode::parallel_decrypt(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, udp_server *listener_ptr)
 {
-	std::function<udp_mappings::decryption_result_listener(std::unique_ptr<uint8_t[]>)> func =
-		[this, data_size, peer, listener_ptr](std::unique_ptr<uint8_t[]> data) mutable
-		-> udp_mappings::decryption_result_listener
+	std::function<decryption_result_listener(std::unique_ptr<uint8_t[]>)> func =
+		[this, data_size, peer, listener_ptr](std::unique_ptr<uint8_t[]> data) mutable -> decryption_result_listener
 		{
 			uint8_t *data_ptr = data.get();
 			auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
-			return { error_message, std::move(data), plain_size, peer, listener_ptr };
+			return { std::move(error_message), std::move(data), plain_size, peer, listener_ptr };
 		};
 
 	auto task_future = parallel_decryption_pool->submit(func, std::move(data));
@@ -540,7 +537,7 @@ void server_mode::parallel_decrypt(std::unique_ptr<uint8_t[]> data, size_t data_
 	decryptions_from_listener.emplace_back(std::move(task_future));
 	locker.unlock();
 	listener_decryption_task_count++;
-	sequential_extract();
+	sequential_extract(listener_ptr);
 }
 
 void server_mode::fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size)
@@ -825,8 +822,7 @@ bool server_mode::start()
 		try
 		{
 			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_listener, &sequence_task_pool, _1, _2, _3);
-			auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_listener_network_task_count(number) > TASK_COUNT_LIMIT; };
-			udp_servers.emplace_back(std::make_unique<udp_server>(io_context, bind_push_func, bind_check_limit_func, ep, func));
+			udp_servers.emplace_back(std::make_unique<udp_server>(io_context, bind_push_func, ep, func));
 		}
 		catch (std::exception &ex)
 		{

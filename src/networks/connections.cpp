@@ -24,11 +24,6 @@ void empty_udp_client_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp
 {
 }
 
-bool return_false(size_t)
-{
-	return false;
-}
-
 namespace packet
 {
 	uint64_t htonll(uint64_t value) noexcept
@@ -355,7 +350,7 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	udp::endpoint copy_of_incoming_endpoint = incoming_endpoint;
 	start_receive();
 
-	if (buffer_cache == nullptr || bytes_transferred == 0)
+	if (buffer_cache == nullptr || bytes_transferred == 0 || task_count.load() > TASK_COUNT_LIMIT)
 		return;
 
 	if (BUFFER_SIZE - bytes_transferred < BUFFER_EXPAND_SIZE)
@@ -368,8 +363,9 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	switch (task_type_running)
 	{
 	case task_type::sequence:
+		task_count++;
 		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); },
+			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); task_count--; },
 			std::move(buffer_cache));
 		break;
 	case task_type::in_place:
@@ -573,6 +569,8 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	udp::endpoint copy_of_incoming_endpoint = incoming_endpoint;
 	start_receive();
 
+	if (task_count.load() > TASK_COUNT_LIMIT)
+		return;
 
 	if (BUFFER_SIZE - bytes_transferred < BUFFER_EXPAND_SIZE)
 	{
@@ -584,8 +582,9 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	switch (task_type_running)
 	{
 	case task_type::sequence:
+		task_count++;
 		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },
+			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); task_count--; },
 			std::move(buffer_cache));
 		break;
 	case task_type::in_place:

@@ -60,7 +60,6 @@ int64_t right_now();
 
 void empty_udp_server_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, udp_server *tmp3);
 void empty_udp_client_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3);
-bool return_false(size_t);
 
 enum class feature : uint8_t
 {
@@ -369,8 +368,8 @@ public:
 		initialise(ep);
 		start_receive();
 	}
-	udp_server(asio::io_context &net_io, sequence_callback_t task_function, std::function<bool(size_t)> task_count_limit, const udp::endpoint &ep, udp_server_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
-		: binded_endpoint(ep), task_type_running(task_type::sequence), push_task_seq(task_function), resolver(net_io), connection_socket(net_io), callback(callback_func), task_limit_reached(task_count_limit), ip_version_only(ip_ver_only)
+	udp_server(asio::io_context &net_io, sequence_callback_t task_function, const udp::endpoint &ep, udp_server_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
+		: binded_endpoint(ep), task_type_running(task_type::sequence), push_task_seq(task_function), resolver(net_io), connection_socket(net_io), callback(callback_func), ip_version_only(ip_ver_only)
 	{
 		initialise(ep);
 		start_receive();
@@ -394,9 +393,9 @@ private:
 	udp::endpoint incoming_endpoint;
 	udp_server_callback_t callback;
 	task_type task_type_running;
-	std::function<bool(size_t)> task_limit_reached = return_false;
 	sequence_callback_t push_task_seq;
 	const ip_only_options ip_version_only;
+	static inline std::atomic<size_t> task_count{};
 };
 
 class udp_client
@@ -409,9 +408,9 @@ public:
 	{
 		initialise();
 	}
-	udp_client(asio::io_context &io_context, sequence_callback_t task_function, std::function<bool(size_t)> task_count_limit, udp_client_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
+	udp_client(asio::io_context &io_context, sequence_callback_t task_function, udp_client_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
 		: task_type_running(task_type::in_place), push_task_seq(task_function), connection_socket(io_context), resolver(io_context), callback(callback_func),
-		task_limit_reached(task_count_limit), last_receive_time(right_now()), last_send_time(right_now()), paused(false), stopped(false), ip_version_only(ip_ver_only)
+		last_receive_time(right_now()), last_send_time(right_now()), paused(false), stopped(false), ip_version_only(ip_ver_only)
 	{
 		initialise();
 	}
@@ -456,9 +455,9 @@ protected:
 	alignas(64) std::atomic<bool> paused;
 	alignas(64) std::atomic<bool> stopped;
 	task_type task_type_running;
-	std::function<bool(size_t)> task_limit_reached = return_false;
 	sequence_callback_t push_task_seq;
 	const ip_only_options ip_version_only;
+	static inline std::atomic<size_t> task_count{};
 };
 
 
@@ -467,8 +466,8 @@ class forwarder : public udp_client
 public:
 	using process_data_t = std::function<void(std::weak_ptr<udp_mappings>, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
 	forwarder() = delete;
-	forwarder(asio::io_context &io_context, sequence_callback_t task_function, std::function<bool(size_t)> task_count_limit, std::weak_ptr<udp_mappings> input_session, process_data_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set) :
-		udp_client(io_context, task_function, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), ip_ver_only),
+	forwarder(asio::io_context &io_context, sequence_callback_t task_function, std::weak_ptr<udp_mappings> input_session, process_data_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set) :
+		udp_client(io_context, task_function, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), ip_ver_only),
 		udp_session_mappings(input_session), callback(callback_func) {}
 
 private:
@@ -478,10 +477,7 @@ private:
 			return;
 
 		if (udp_session_mappings.expired())
-		{
-			stop();
 			return;
-		}
 
 		callback(udp_session_mappings, std::move(data), data_size, peer, local_port_number);
 	}
@@ -500,11 +496,34 @@ struct fec_control_data
 	fecpp::fec_code fecc;
 };
 
+struct encryption_result
+{
+	std::string error_message;
+	std::unique_ptr<uint8_t[]> data;
+	size_t data_size;
+	std::shared_ptr<udp::endpoint> udp_endpoint;
+};
+
+struct decryption_result_listener
+{
+	std::string error_message;
+	std::unique_ptr<uint8_t[]> data;
+	size_t data_size;
+	udp::endpoint udp_endpoint;
+	udp_server *listener;
+};
+
+struct decryption_result_forwarder
+{
+	std::string error_message;
+	std::unique_ptr<uint8_t[]> data;
+	size_t data_size;
+	udp::endpoint udp_endpoint;
+	asio::ip::port_type port_number;
+};
+
 struct udp_mappings
 {
-	using encryption_result = std::tuple<std::string, std::unique_ptr<uint8_t[]>, size_t, std::shared_ptr<udp::endpoint>>;
-	using decryption_result_listener = std::tuple<std::string, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, udp_server*>;
-	using decryption_result_forwarder = std::tuple<std::string, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type>;
 	std::unique_ptr<packet::data_wrapper> wrapper_ptr;
 #ifdef __cpp_lib_atomic_shared_ptr
 	std::atomic<std::shared_ptr<udp::endpoint>> ingress_source_endpoint;
@@ -541,11 +560,11 @@ struct udp_mappings
 	alignas(64) std::atomic<int64_t> last_egress_receive_time{ std::numeric_limits<int64_t>::max() };
 	alignas(64) std::atomic<int64_t> last_egress_send_time{ std::numeric_limits<int64_t>::max() };
 	std::mutex mutex_encryptions_via_listener;
-	std::list<std::future<encryption_result>> encryptions_via_listener;
+	std::deque<std::future<encryption_result>> encryptions_via_listener;
 	std::mutex mutex_encryptions_via_forwarder;
-	std::list<std::future<encryption_result>> encryptions_via_forwarder;
+	std::deque<std::future<encryption_result>> encryptions_via_forwarder;
 	std::mutex mutex_decryptions_from_forwarder;
-	std::list<std::future<decryption_result_forwarder>> decryptions_from_forwarder;
+	std::deque<std::future<decryption_result_forwarder>> decryptions_from_forwarder;
 	std::atomic<int> listener_encryption_task_count;
 	std::atomic<int> forwarder_encryption_task_count;
 	std::atomic<int> forwarder_decryption_task_count;
