@@ -106,8 +106,8 @@ encryption_algorithm=AES-GCM
 | destination_port    | 1 - 65535           | Yes      | Specify the port range when running as a client |
 | destination_address | IP address, domain name | Yes   | When inputting an IPv6 address, no need for square brackets. Multiple addresses should be comma-separated.|
 | dport_refresh       | 20 - 65535          | No       | Unit: seconds. Default value is 60 seconds. If less than 20 seconds, it will be considered as 20 seconds; if greater than 65535, it will be considered as 65536 seconds |
-| encryption_algorithm| AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20 | No | Select from AES-256-GCM-AEAD, AES-256-OCB-AEAD, ChaCha20-Poly1305, XChaCha20-Poly1305 |
-| encryption_password | Any characters      | Depending on situation | Required when setting encryption_algorithm |
+| encryption_algorithm | XOR<br>AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |No    |XOR Only<br>AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>No Encryption |
+| encryption_password  | Any character |Depends…|…on the setting of encryption_algorithm, if the value is set and it is neither `none` nor `XOR`, it is required|
 | timeout             | 0 - 65535           | No       | Unit: seconds. Default value is 1800. Set to 0 to use the default value. Represents the timeout setting between the UDP application and udphop |
 | keep_alive          | 0 - 65535           | No       | Default value is 0, which means Keep Alive is disabled |
 | stun_server         | STUN server address  | No       | Cannot be used when listen_port is in port range mode |

@@ -108,8 +108,8 @@ encryption_algorithm=AES-GCM
 | destination_port     | 1 - 65535          |是    |以客户端运行时可以指定端口范围|
 | destination_address  | IP地址、域名        |是    |填入 IPv6 地址时不需要中括号。多个地址请用逗号分隔|
 | dport_refresh        | 20 - 65535         |否    |单位“秒”。预设值 60 秒，小于20秒按20秒算，大于65535时按65536秒算|
-| encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20 |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305 |
-| encryption_password  | 任意字符            |视情况|设置了 encryption_algorithm 时必填|
+| encryption_algorithm | XOR<br>AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |否    |单纯异或运算<br>AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>不加密 |
+| encryption_password  | 任意字符            |视情况|设置了 encryption_algorithm 使用加密时必填，none与XOR除外|
 | timeout              | 0 - 65535          |否    |单位“秒”。预设值为 1800，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ udphop 之间的超时设置 |
 | keep_alive           | 0 - 65535          |否    |预设值为 0，等于停用 Keep Alive |
 | stun_server          | STUN 服务器地址     |否    |listen_port 为端口范围模式时不可使用|

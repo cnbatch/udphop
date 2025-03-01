@@ -473,8 +473,8 @@ void server_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, con
 
 void server_mode::data_sender(std::shared_ptr<udp_mappings> udp_session_ptr)
 {
-	udp_session_ptr->listener_encryption_task_count--;
 	if (udp_session_ptr == nullptr) return;
+	udp_session_ptr->listener_encryption_task_count--;
 	std::unique_lock locker{ udp_session_ptr->mutex_encryptions_via_listener };
 	if (udp_session_ptr->encryptions_via_listener.empty())
 		return;
