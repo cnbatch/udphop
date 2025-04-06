@@ -330,7 +330,7 @@ void udp_server::initialise(udp::endpoint ep)
 
 void udp_server::start_receive()
 {
-	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique_for_overwrite<uint8_t[]>(BUFFER_SIZE);
 	uint8_t *buffer_raw_ptr = buffer_cache.get();
 	connection_socket.async_receive_from(asio::buffer(buffer_raw_ptr, BUFFER_SIZE), incoming_endpoint,
 		[data = std::move(buffer_cache), this](const asio::error_code &error, std::size_t bytes_transferred) mutable
@@ -355,7 +355,7 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 
 	if (BUFFER_SIZE - bytes_transferred < BUFFER_EXPAND_SIZE)
 	{
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE + BUFFER_EXPAND_SIZE);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique_for_overwrite<uint8_t[]>(BUFFER_SIZE + BUFFER_EXPAND_SIZE);
 		std::copy_n(buffer_cache.get(), bytes_transferred, new_buffer.get());
 		buffer_cache.swap(new_buffer);
 	}
@@ -540,7 +540,7 @@ void udp_client::start_receive()
 	if (paused.load() || stopped.load())
 		return;
 
-	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique_for_overwrite<uint8_t[]>(BUFFER_SIZE);
 	uint8_t *buffer_raw_ptr = buffer_cache.get();
 	auto asio_buffer = asio::buffer(buffer_raw_ptr, BUFFER_SIZE);
 	if (!connection_socket.is_open())
@@ -574,7 +574,7 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 
 	if (BUFFER_SIZE - bytes_transferred < BUFFER_EXPAND_SIZE)
 	{
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE + BUFFER_EXPAND_SIZE);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique_for_overwrite<uint8_t[]>(BUFFER_SIZE + BUFFER_EXPAND_SIZE);
 		std::copy_n(buffer_cache.get(), bytes_transferred, new_buffer.get());
 		buffer_cache.swap(new_buffer);
 	}

@@ -207,7 +207,7 @@ namespace packet
 		{
 			auto timestamp = right_now();
 			size_t new_size = sizeof(packet_layer) - 1 + data_size;
-			std::unique_ptr<uint8_t[]> new_data = std::make_unique<uint8_t[]>(new_size + BUFFER_EXPAND_SIZE);
+			std::unique_ptr<uint8_t[]> new_data = std::make_unique_for_overwrite<uint8_t[]>(new_size + BUFFER_EXPAND_SIZE);
 
 			packet_layer *ptr = (packet_layer *)new_data.get();
 			ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
@@ -245,7 +245,7 @@ namespace packet
 		{
 			auto timestamp = right_now();
 			size_t new_size = sizeof(packet_layer_fec) - 1 + data_size;
-			std::unique_ptr<uint8_t[]> new_data = std::make_unique<uint8_t[]>(new_size + BUFFER_EXPAND_SIZE);
+			std::unique_ptr<uint8_t[]> new_data = std::make_unique_for_overwrite<uint8_t[]>(new_size + BUFFER_EXPAND_SIZE);
 
 			packet_layer_fec *ptr = (packet_layer_fec *)new_data.get();
 			ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
@@ -305,7 +305,7 @@ namespace packet
 		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_random_small_packet() const
 		{
 			constexpr size_t data_size = sizeof(uint32_t) * SMALL_PACKET_DATA_SIZE;
-			std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+			std::unique_ptr<uint8_t[]> data = std::make_unique_for_overwrite<uint8_t[]>(BUFFER_SIZE);
 			std::fill_n((uint32_t*)data.get(), SMALL_PACKET_DATA_SIZE, generate_token_number());
 			return { std::move(data), data_size };
 		}
@@ -313,7 +313,7 @@ namespace packet
 		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_small_packet() const
 		{
 			constexpr size_t data_size = sizeof(uint32_t) * SMALL_PACKET_DATA_SIZE;
-			std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+			std::unique_ptr<uint8_t[]> data = std::make_unique_for_overwrite<uint8_t[]>(BUFFER_SIZE);
 			uint32_t fill_number = htonl(iden);
 			std::fill_n((uint32_t*)data.get(), SMALL_PACKET_DATA_SIZE, fill_number);
 			return { std::move(data), data_size };
@@ -322,7 +322,7 @@ namespace packet
 		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_small_packet(uint32_t input_iden) const
 		{
 			constexpr size_t data_size = sizeof(uint32_t) * SMALL_PACKET_DATA_SIZE;
-			std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+			std::unique_ptr<uint8_t[]> data = std::make_unique_for_overwrite<uint8_t[]>(BUFFER_SIZE);
 			uint32_t fill_number = htonl(input_iden);
 			std::fill_n((uint32_t*)data.get(), SMALL_PACKET_DATA_SIZE, fill_number);
 			return { std::move(data), data_size };
@@ -466,6 +466,11 @@ class forwarder : public udp_client
 public:
 	using process_data_t = std::function<void(std::weak_ptr<udp_mappings>, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
 	forwarder() = delete;
+
+	forwarder(asio::io_context &io_context, std::weak_ptr<udp_mappings> input_session, process_data_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set) :
+		udp_client(io_context, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), ip_ver_only),
+		udp_session_mappings(input_session), callback(callback_func) {}
+
 	forwarder(asio::io_context &io_context, sequence_callback_t task_function, std::weak_ptr<udp_mappings> input_session, process_data_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set) :
 		udp_client(io_context, task_function, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), ip_ver_only),
 		udp_session_mappings(input_session), callback(callback_func) {}
@@ -559,15 +564,15 @@ struct udp_mappings
 	alignas(64) std::atomic<int64_t> last_inress_send_time{ std::numeric_limits<int64_t>::max() };
 	alignas(64) std::atomic<int64_t> last_egress_receive_time{ std::numeric_limits<int64_t>::max() };
 	alignas(64) std::atomic<int64_t> last_egress_send_time{ std::numeric_limits<int64_t>::max() };
-	std::mutex mutex_encryptions_via_listener;
-	std::deque<std::future<encryption_result>> encryptions_via_listener;
-	std::mutex mutex_encryptions_via_forwarder;
-	std::deque<std::future<encryption_result>> encryptions_via_forwarder;
-	std::mutex mutex_decryptions_from_forwarder;
-	std::deque<std::future<decryption_result_forwarder>> decryptions_from_forwarder;
-	std::atomic<int> listener_encryption_task_count;
-	std::atomic<int> forwarder_encryption_task_count;
-	std::atomic<int> forwarder_decryption_task_count;
+	//std::mutex mutex_encryptions_via_listener;
+	//std::deque<std::future<encryption_result>> encryptions_via_listener;
+	//std::mutex mutex_encryptions_via_forwarder;
+	//std::deque<std::future<encryption_result>> encryptions_via_forwarder;
+	//std::mutex mutex_decryptions_from_forwarder;
+	//std::deque<std::future<decryption_result_forwarder>> decryptions_from_forwarder;
+	//std::atomic<int> listener_encryption_task_count;
+	//std::atomic<int> forwarder_encryption_task_count;
+	//std::atomic<int> forwarder_decryption_task_count;
 };
 
 int64_t time_gap_of_ingress_receive(udp_mappings *ptr);

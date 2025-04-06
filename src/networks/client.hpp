@@ -37,23 +37,23 @@ class client_mode
 	asio::steady_timer timer_expiring_sessions;
 	asio::steady_timer timer_keep_alive;
 	asio::steady_timer timer_status_log;
-	ttp::task_group_pool &sequence_task_pool;
-	ttp::task_thread_pool *parallel_encryption_pool;
-	ttp::task_thread_pool *parallel_decryption_pool;
+	//ttp::task_group_pool &sequence_task_pool;
+	//ttp::task_thread_pool *parallel_encryption_pool;
+	//ttp::task_thread_pool *parallel_decryption_pool;
 
 	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, udp_server *listener_ptr);
 	void udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, udp_server *listener_ptr);
 	void udp_forwarder_incoming_to_udp(std::weak_ptr<udp_mappings> udp_session_weak_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
-	void udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappings> udp_session_ptr);
+	//void udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<udp_mappings> udp_session_ptr);
 	std::unique_ptr<udp::endpoint> get_udp_target(std::shared_ptr<forwarder> target_connector, size_t index);
 	std::unique_ptr<udp::endpoint> update_udp_target(std::shared_ptr<forwarder> target_connector, size_t index);
 	void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, const udp::endpoint &peer, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	//void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::vector<uint8_t> &&data);
-	void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr);
-	void parallel_encrypt(std::shared_ptr<udp_mappings> udp_session_ptr, std::shared_ptr<udp::endpoint> peer, std::unique_ptr<uint8_t[]> data, size_t data_size);
-	void parallel_decrypt(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
+	//void data_sender(std::shared_ptr<udp_mappings> udp_session_ptr);
+	//void parallel_encrypt(std::shared_ptr<udp_mappings> udp_session_ptr, std::shared_ptr<udp::endpoint> peer, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	//void parallel_decrypt(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, feature feature_value, std::unique_ptr<uint8_t[]> data, size_t data_size);
 	void fec_find_missings(udp_mappings *udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 
@@ -77,15 +77,15 @@ public:
 	client_mode(const client_mode &) = delete;
 	client_mode& operator=(const client_mode &) = delete;
 
-	client_mode(asio::io_context &io_context_ref, ttp::task_group_pool &seq_task_pool, task_pool_colloector &task_pools, const user_settings &settings) :
+	client_mode(asio::io_context &io_context_ref, /*ttp::task_group_pool &seq_task_pool, task_pool_colloector &task_pools,*/ const user_settings &settings) :
 		io_context(io_context_ref),
 		timer_find_timeout(io_context),
 		timer_expiring_sessions(io_context),
 		timer_keep_alive(io_context),
 		timer_status_log(io_context),
-		sequence_task_pool(seq_task_pool),
-		parallel_encryption_pool(task_pools.parallel_encryption_pool),
-		parallel_decryption_pool(task_pools.parallel_decryption_pool),
+		//sequence_task_pool(seq_task_pool),
+		//parallel_encryption_pool(task_pools.parallel_encryption_pool),
+		//parallel_decryption_pool(task_pools.parallel_decryption_pool),
 		current_settings(settings) {}
 
 	client_mode(client_mode &&existing_client) noexcept :
@@ -94,9 +94,9 @@ public:
 		timer_expiring_sessions(std::move(existing_client.timer_expiring_sessions)),
 		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
 		timer_status_log(std::move(existing_client.timer_status_log)),
-		sequence_task_pool(existing_client.sequence_task_pool),
-		parallel_encryption_pool(existing_client.parallel_encryption_pool),
-		parallel_decryption_pool(existing_client.parallel_decryption_pool),
+		//sequence_task_pool(existing_client.sequence_task_pool),
+		//parallel_encryption_pool(existing_client.parallel_encryption_pool),
+		//parallel_decryption_pool(existing_client.parallel_decryption_pool),
 		current_settings(std::move(existing_client.current_settings)) {}
 	
 	~client_mode();
