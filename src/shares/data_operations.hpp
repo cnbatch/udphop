@@ -1,5 +1,6 @@
 #pragma once
 #include "share_defines.hpp"
+#include <asio.hpp>
 
 #ifndef __DATA_OPERATIONS_HPP__
 #define __DATA_OPERATIONS_HPP__
@@ -19,5 +20,24 @@ std::pair<std::map<size_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>, size_
 std::vector<std::vector<uint8_t>> extract_from_container(const std::vector<std::vector<uint8_t>> &recovered_container);
 std::vector<uint8_t> copy_from_container(const std::vector<uint8_t> &recovered_container);
 std::pair<uint8_t*, size_t> extract_from_container(const std::vector<uint8_t> &recovered_container);
+
+class async_cipher_operations
+{
+private:
+	task_thread_pool::task_thread_pool &parallel_pool;
+	const std::string password;
+	encryption_mode mode;
+
+public:
+	async_cipher_operations() = delete;
+	async_cipher_operations(task_thread_pool::task_thread_pool &parallel_pool, std::string password, encryption_mode mode):
+		parallel_pool(parallel_pool), password(password), mode(mode) {};
+	asio::awaitable<std::pair<std::string, size_t>> async_encrypt(asio::io_context &ioc, uint8_t *data_ptr, int length);
+	asio::awaitable<std::vector<uint8_t>> async_encrypt(asio::io_context &ioc, const void *data_ptr, int length, std::string &error_message);
+	asio::awaitable<std::vector<uint8_t>> async_encrypt(asio::io_context &ioc, std::vector<uint8_t> &&plain_data, std::string &error_message);
+	asio::awaitable<std::pair<std::string, size_t>> async_decrypt(asio::io_context &ioc, uint8_t *data_ptr, int length);
+	asio::awaitable<std::vector<uint8_t>> async_decrypt(asio::io_context &ioc, const void *data_ptr, int length, std::string &error_message);
+	asio::awaitable<std::vector<uint8_t>> async_decrypt(asio::io_context &ioc, std::vector<uint8_t> &&cipher_data, std::string &error_message);
+};
 
 #endif	// !__DATA_OPERATIONS_HPP__

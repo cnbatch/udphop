@@ -105,12 +105,15 @@ encryption_algorithm=AES-GCM
 | listen_port         | 1 - 65535           | Yes      | Specify the port range when running as a server |
 | destination_port    | 1 - 65535           | Yes      | Specify the port range when running as a client |
 | destination_address | IP address, domain name | Yes   | When inputting an IPv6 address, no need for square brackets. Multiple addresses should be comma-separated.|
+| destination_dnstxt   | Domain name        | No    |Accepts a single domain name, for client use only. Retrieves the IP address and port from a DNS TXT record. When this parameter is used, destination_address and destination_port are not required.|
 | dport_refresh       | 20 - 65535          | No       | Unit: seconds. Default value is 60 seconds. If less than 20 seconds, it will be considered as 20 seconds; if greater than 65535, it will be considered as 65536 seconds |
 | encryption_algorithm | XOR<br>AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |No    |XOR Only<br>AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>No Encryption |
 | encryption_password  | Any character |Depends…|…on the setting of encryption_algorithm, if the value is set and it is neither `none` nor `XOR`, it is required|
 | timeout             | 0 - 65535           | No       | Unit: seconds. Default value is 1800. Set to 0 to use the default value. Represents the timeout setting between the UDP application and udphop |
 | keep_alive          | 0 - 65535           | No       | Default value is 0, which means Keep Alive is disabled |
 | stun_server         | STUN server address  | No       | Cannot be used when listen_port is in port range mode |
+| update_ipv4         | Path to an executable file | No   |Used for processing the public IPv4 address obtained from STUN. See documentation below for details.|
+| update_ipv6         | Path to an executable file | No   |Used for processing the public IPv6 address obtained from STUN. See documentation below for details.|
 | log_path            | Directory for storing logs | No  | Should point to a directory, not a file itself. If not needed, remove this line |
 | ipv4_only           | yes<br>true<br>1<br>no<br>false<br>0 | No | If IPv6 is disabled on the system, enable this option and set to yes, true, or 1 |
 | ipv6_only | yes<br>true<br>1<br>no<br>false<br>0 |No|Ignore IPv4 address|
@@ -125,7 +128,7 @@ For example, you can input `fec=20:4`, which means for every 20 data packets sen
 
 **Reminder**: It is not recommended for OpenVPN using AEAD encryption mode to use this feature, because OpenVPN's tolerance for out-of-order packets is very poor under this circumstance, and UDPHop is not responsible for reordering packets, even for FEC-recovered data.
 
-#### 中继模式
+#### Relay Mode
 Please refer to [The Usage of Relay Mode](docs/relay_mode_en.md).
 
 ### Log Files
@@ -136,6 +139,32 @@ The obtained punched address will also be displayed in the console.
 `log_path=` must point to a directory, not a file itself.
 
 If log writing is not needed, then remove the `log_path` line.
+
+### STUN Options
+
+These three parameters are limited to server and relay modes:
+- `stun_server`
+- `update_ipv4`
+- `update_ipv6`
+
+Once `update_ipv4` or `update_ipv6` is set, the program will execute the corresponding script, passing the IP address and port obtained from STUN to it.
+
+For example, given the following settings:
+```
+update_ipv4=/home/test/update_to_dnsv4
+update_ipv6=/home/test/update_to_dnsv6
+```
+
+If the address and port obtained from STUN are `130.131.132.133` and `23456` respectively, the file executed and the arguments passed will be:
+
+```
+/home/test/update_to_dnsv4 130.131.132.133:23456
+```
+
+If the address and port obtained are `2409:ABCD:FEDC:3210::1` and `23456` respectively, the file executed and the arguments passed will be:
+```
+/home/test/update_to_dnsv6 [2409:ABCD:FEDC:3210::1]:23456
+```
 
 ### STUN Servers
 STUN Servers found in [NatTypeTeste](https://github.com/HMBSbige/NatTypeTester):
@@ -159,6 +188,35 @@ STUN Servers found in [Natter](https://github.com/MikeWang000000/Natter):
 - stun.voipgate.com
 
 Other STUN Servers: [public-stun-list.txt](https://gist.github.com/mondain/b0ec1cf5f60ae726202e)
+
+### DNS TXT
+Retrieve a text string from the domain's TXT record. This text string contains **a single** IP address and port number.
+
+Example format for the text content (IPv4 address):
+```
+192.168.0.1:65001
+```
+
+Example format for the text content (IPv6 address):
+```
+[::1]:65001
+```
+
+Invalid format examples:
+```
+192.168.0.1:65001,[::1]:65001
+```
+Multiple addresses are not allowed.
+
+```
+[192.168.0.1]:65001
+```
+Square brackets are not required for IPv4 addresses.
+
+```
+2409:abcd:dcba::1:65001
+```
+Square brackets must be used for IPv6 addresses.
 
 ---
 
@@ -241,19 +299,74 @@ make
 ```
 
 ### NetBSD
-The steps are similar to FreeBSD. For NetBSD, use [pkgin](https://www.netbsd.org/docs/pkgsrc/using.html) to install dependencies and cmake:
+Please install dependencies and cmake by running [pkgin](https://www.netbsd.org/docs/pkgsrc/using.html):
 ```
-pkgin install asio
-pkgin install cmake
+pkgin install asio botan3 cmake
 ```
 
-Please use `pkg_add` on OpenBSD to install the two dependencies mentioned above. On DragonflyBSD, please use `pkg`, the usage is the same as FreeBSD.
+Since the system's built-in GCC version is too low, you must install a newer version of GCC:
 
-Since botan-3 is not yet included in these BSD systems, it needs to be compiled manually.
+```
+pkgin install gcc13
+```
+Then, build in the `build` directory:
+```
+mkdir build
+cd build
+cmake -D CMAKE_CXX_COMPILER=/usr/pkg/gcc13/bin/c++ -D CMAKE_C_COMPILER=/usr/pkg/gcc13/bin/cc ..
+make
+```
 
-Please refer to the aforementioned FreeBSD for the remaining build steps.
+### OpenBSD
 
-Note that due to the lower versions of the compilers included in these BSD systems, please install a higher version of GCC in advance.
+For OpenBSD, Please install dependencies and cmake by running `pkg_add`:
+
+```
+pkg_add asio
+pkg_add cmake
+```
+
+Currently, botan-3 has not been included in OpenBSD, so you must compile botan-3 yourself. It is recommended to place it in `/usr/local/include/` after compilation, with the full path being `/usr/local/include/botan-3/`, just like on FreeBSD.
+
+Since the system's built-in Clang version is too low, you must install a newer version of Clang:
+
+```
+pkg_add llvm
+```
+
+Choose the latest version.
+
+Then, build in the `build` directory:
+```
+mkdir build
+cd build
+cmake -D CMAKE_CXX_COMPILER=/usr/local/llvm19/bin/clang++ -D CMAKE_C_COMPILER=/usr/local/llvm19/bin/clang ..
+make
+```
+
+### DragonflyBSD
+
+Like FreeBSD, use `pkg` to install dependencies and cmake:
+
+```
+pkg install asio cmake
+```
+
+Currently, botan-3 has not been included in DragonflyBSD, so you must compile botan-3 yourself. It is recommended to place it in `/usr/local/include/` after compilation, with the full path being `/usr/local/include/botan-3/`, just like on FreeBSD.
+
+Since the system's built-in GCC version is too low, you must install a newer version of GCC:
+
+```
+pkg install gcc14
+```
+
+Then, build in the `build` directory:
+```
+mkdir build
+cd build
+cmake -D CMAKE_CXX_COMPILER=/usr/local/bin/c++14 -D CMAKE_C_COMPILER=/usr/local/bin/gcc14 -D CMAKE_INSTALL_RPATH=/usr/local/lib/gcc14 -D CMAKE_BUILD_WITH_INSTALL_RPATH=ON ..
+make
+```
 
 ### Linux
 The steps are similar to FreeBSD. Install asio and botan3 as well as cmake using the package manager provided by the distribution.
@@ -399,7 +512,7 @@ root      soft    nofile       300000
 ## About the Code
 
 ### Thread Pool
-The thread pool used by UDPHop comes from [BS::thread_pool](https://github.com/bshoshany/thread-pool), with some modifications made for parallel encryption and decryption processing in multiple connections.
+The thread pool used by UDPHop comes from [task-thread-pool](https://github.com/alugowski/task-thread-pool), uses for parallel encryption and decryption processing in multiple connections.
 
 ### FEC
 

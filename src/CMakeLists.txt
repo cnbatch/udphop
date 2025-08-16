@@ -1,7 +1,9 @@
 add_subdirectory(3rd_party)
 add_subdirectory(shares)
 add_subdirectory(networks)
+add_subdirectory(modes)
 
+target_link_libraries(${PROJECT_NAME} PRIVATE RUNNINGMODES)
 target_link_libraries(${PROJECT_NAME} PRIVATE NETCONNECTIONS)
 target_link_libraries(${PROJECT_NAME} PRIVATE SHAREDEFINES)
 target_link_libraries(${PROJECT_NAME} PRIVATE THRID_PARTIES)
@@ -26,10 +28,12 @@ else()
 	target_link_libraries(${PROJECT_NAME} PRIVATE botan-3)
 endif()
 
-#if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 #	target_link_libraries(${PROJECT_NAME} PUBLIC uring)
-#endif()
+target_link_libraries(${PROJECT_NAME} PUBLIC resolv)
+endif()
 
+add_compile_options("$<$<CXX_COMPILER_ID:AppleClang,Clang>:-fexperimental-library>")
 add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
 add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 set_property(TARGET ${PROJECT_NAME} PROPERTY

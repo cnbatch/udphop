@@ -22,10 +22,11 @@
     <ClCompile Include="..\..\src\3rd_party\fecpp.cpp" />
     <ClCompile Include="..\..\src\3rd_party\fecpp_ssse3.cpp" />
     <ClCompile Include="..\..\src\main.cpp" />
-    <ClCompile Include="..\..\src\networks\client.cpp" />
+    <ClCompile Include="..\..\src\modes\client.cpp" />
     <ClCompile Include="..\..\src\networks\connections.cpp" />
-    <ClCompile Include="..\..\src\networks\relay.cpp" />
-    <ClCompile Include="..\..\src\networks\server.cpp" />
+    <ClCompile Include="..\..\src\modes\relay.cpp" />
+    <ClCompile Include="..\..\src\modes\server.cpp" />
+    <ClCompile Include="..\..\src\networks\dns_helper.cpp" />
     <ClCompile Include="..\..\src\networks\stun.cpp" />
     <ClCompile Include="..\..\src\shares\configurations.cpp" />
     <ClCompile Include="..\..\src\shares\data_operations.cpp" />
@@ -33,11 +34,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\3rd_party\fecpp.hpp" />
-    <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp" />
-    <ClInclude Include="..\..\src\networks\client.hpp" />
+    <ClInclude Include="..\..\src\3rd_party\task_thread_pool.hpp" />
+    <ClInclude Include="..\..\src\modes\client.hpp" />
     <ClInclude Include="..\..\src\networks\connections.hpp" />
-    <ClInclude Include="..\..\src\networks\relay.hpp" />
-    <ClInclude Include="..\..\src\networks\server.hpp" />
+    <ClInclude Include="..\..\src\modes\relay.hpp" />
+    <ClInclude Include="..\..\src\modes\server.hpp" />
+    <ClInclude Include="..\..\src\networks\dns_helper.hpp" />
     <ClInclude Include="..\..\src\networks\stun.hpp" />
     <ClInclude Include="..\..\src\shares\aead.hpp" />
     <ClInclude Include="..\..\src\shares\configurations.hpp" />

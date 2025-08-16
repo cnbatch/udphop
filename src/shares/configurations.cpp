@@ -137,9 +137,12 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				current_settings->destination_ports = string_to_port_numbers(value, error_msg, "destination");
 				break;
 
-
 			case strhash("destination_address"):
 				current_settings->destination_address_list = string_to_address_list(value);
+				break;
+
+			case strhash("destination_dnstxt"):
+				current_settings->destination_dnstxt = value;
 				break;
 
 			case strhash("encryption_password"):
@@ -194,6 +197,14 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				current_settings->stun_server = original_value;
 				break;
 
+			case strhash("update_ipv4"):
+				current_settings->update_ipv4_path = original_value;
+				break;
+
+			case strhash("update_ipv6"):
+				current_settings->update_ipv6_path = original_value;
+				break;
+
 			case strhash("log_path"):
 				current_settings->log_directory = original_value;
 				break;
@@ -234,16 +245,16 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 					int fec_redundant_number = std::stoi(fec_redundant_part);
 
 					if (fec_data_number > 0 && fec_data_number <= UCHAR_MAX)
-						current_settings->fec_data = static_cast<uint8_t>(fec_data_number);
+						current_settings->fec_original_packet_count = static_cast<uint8_t>(fec_data_number);
 
 					if (fec_redundant_number > 0 && fec_redundant_number <= UCHAR_MAX)
-						current_settings->fec_redundant = static_cast<uint8_t>(fec_redundant_number);
+						current_settings->fec_redundant_packet_count = static_cast<uint8_t>(fec_redundant_number);
 
 					if (int sum = fec_data_number + fec_redundant_number; sum > UCHAR_MAX)
 						error_msg.emplace_back("the sum of fec value is too large: " + std::to_string(sum) + " (" + arg + ")");
 
-					if (current_settings->fec_data == 0 || current_settings->fec_redundant == 0)
-						current_settings->fec_data = current_settings->fec_redundant = 0;
+					if (current_settings->fec_original_packet_count == 0 || current_settings->fec_redundant_packet_count == 0)
+						current_settings->fec_original_packet_count = current_settings->fec_redundant_packet_count = 0;
 				}
 				break;
 
@@ -323,10 +334,6 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 
 	if (current_user_settings.egress != nullptr)
 		copy_settings(*current_user_settings.egress, current_user_settings);
-
-	if ((current_user_settings.mode == running_mode::server || current_user_settings.mode == running_mode::client) &&
-		current_user_settings.destination_address_list.empty())
-		error_msg.emplace_back("invalid destination_address setting");
 
 	if (current_user_settings.encryption != encryption_mode::empty &&
 		current_user_settings.encryption != encryption_mode::unknow &&
@@ -426,11 +433,11 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 
 void copy_settings(user_settings &inner, user_settings &outter)
 {
-	if (outter.fec_data > 0)
-		inner.fec_data = outter.fec_data;
+	if (outter.fec_original_packet_count > 0)
+		inner.fec_original_packet_count = outter.fec_original_packet_count;
 
-	if (outter.fec_redundant > 0)
-		inner.fec_redundant = outter.fec_redundant;
+	if (outter.fec_redundant_packet_count > 0)
+		inner.fec_redundant_packet_count = outter.fec_redundant_packet_count;
 
 	if (outter.encryption != encryption_mode::unknow &&
 		outter.encryption != encryption_mode::empty &&
@@ -448,6 +455,12 @@ void copy_settings(user_settings &inner, user_settings &outter)
 
 	if (outter.ip_version_only != ip_only_options::not_set)
 		inner.ip_version_only = outter.ip_version_only;
+
+	if (!outter.update_ipv4_path.empty())
+		inner.update_ipv4_path = outter.update_ipv4_path;
+
+	if (!outter.update_ipv6_path.empty())
+		inner.update_ipv6_path = outter.update_ipv6_path;
 }
 
 void verify_server_listen_port(user_settings &current_user_settings, std::vector<std::string>& error_msg)
@@ -458,7 +471,19 @@ void verify_server_listen_port(user_settings &current_user_settings, std::vector
 
 void verify_client_destination(user_settings &current_user_settings, std::vector<std::string>& error_msg)
 {
-	if (current_user_settings.destination_ports.empty())
-		error_msg.emplace_back("destination port setting incorrect");
+	if (current_user_settings.destination_dnstxt.empty())
+	{
+		if (current_user_settings.destination_address_list.empty())
+			error_msg.emplace_back("invalid destination_address_list setting");
+		if (current_user_settings.destination_ports.empty())
+			error_msg.emplace_back("destination port setting incorrect");
+	}
+	else
+	{
+		if (!current_user_settings.destination_address_list.empty())
+			error_msg.emplace_back("destination_address: DNS TXT setting exists");
+		if (!current_user_settings.destination_ports.empty())
+			error_msg.emplace_back("destination_port: DNS TXT setting exists");
+	}
 }
 

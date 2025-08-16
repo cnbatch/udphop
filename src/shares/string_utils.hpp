@@ -1,5 +1,6 @@
 #pragma once
-#include <algorithm> 
+#include <algorithm>
+#include <ranges>
 #include <cctype>
 #include <string>
 
@@ -14,72 +15,65 @@ namespace str_utils
 	// trim from start (in place)
 	inline void ltrim(std::string &s)
 	{
-		s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](auto ch)
-			{
-				return !std::isspace(ch);
-			}));
+		s.erase(s.begin(), std::ranges::find_if(s, [](auto ch) { return !isspace(ch); }));
 	}
 
 	// trim from end (in place)
 	inline void rtrim(std::string &s)
 	{
-		s.erase(std::find_if(s.rbegin(), s.rend(), [](auto ch)
-			{
-				return !std::isspace(ch);
-			}).base(), s.end());
+		s.erase(std::ranges::find_if(s | std::views::reverse, [](auto ch) { return !isspace(ch); }).base(), s.end());
 	}
 
 	// trim from both ends (in place)
 	inline void trim(std::string &s)
 	{
-		ltrim(s);
 		rtrim(s);
+		ltrim(s);
 	}
 
 	// trim from start (copying)
-	inline std::string ltrim_copy(std::string s)
+	inline std::string ltrim_copy(std::string_view s)
 	{
-		ltrim(s);
-		return s;
+		auto ltrim_view = s | std::views::drop_while(isspace);
+		return std::string(ltrim_view.begin(), ltrim_view.end());
 	}
 
 	// trim from end (copying)
-	inline std::string rtrim_copy(std::string s)
+	inline std::string rtrim_copy(std::string_view s)
 	{
-		rtrim(s);
-		return s;
+		auto rtrim_view = s | std::views::reverse | std::views::drop_while(isspace) | std::views::reverse;
+		return std::string(rtrim_view.begin(), rtrim_view.end());
 	}
 
 	// trim from both ends (copying)
 	inline std::string trim_copy(std::string s)
 	{
-		trim(s);
-		return s;
+		auto trim_view = s | std::views::drop_while(isspace)
+			| std::views::reverse
+			| std::views::drop_while(isspace)
+			| std::views::reverse;
+		return std::string(trim_view.begin(), trim_view.end());
 	}
 
 	inline void to_lower(std::string &s)
 	{
-		std::transform(s.begin(), s.end(), s.begin(),
-			[](auto c) { return tolower(c); });
+		std::ranges::transform(s, s.begin(), tolower);
 	}
 
-	inline std::string to_lower_copy(std::string s)
+	inline std::string to_lower_copy(std::string_view s)
 	{
-		std::transform(s.begin(), s.end(), s.begin(),
-			[](auto c) { return tolower(c); });
-		return s;
+		auto copy_view = s | std::views::transform(tolower);
+		return std::string(copy_view.begin(), copy_view.end());
 	}
 
 	inline void to_upper(std::string &s)
 	{
-		std::transform(s.begin(), s.end(), s.begin(),
-			[](auto c) { return toupper(c); });
+		std::ranges::transform(s, s.begin(), toupper);
 	}
 
-	inline std::string to_upper_copy(std::string s)
+	inline std::string to_upper_copy(std::string_view s)
 	{
-		std::transform(s.begin(), s.end(), s.begin(),
-			[](auto c) { return tolower(c); });
-		return s;
+		auto copy_view = s | std::views::transform(toupper);
+		return std::string(copy_view.begin(), copy_view.end());
 	}
 }

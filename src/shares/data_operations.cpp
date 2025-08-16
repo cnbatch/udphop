@@ -702,3 +702,112 @@ std::pair<uint8_t*, size_t> extract_from_container(const std::vector<uint8_t> &r
 
 	return { data_ptr, data_length };
 }
+
+asio::awaitable<std::pair<std::string, size_t>> async_cipher_operations::async_encrypt(asio::io_context &ioc, uint8_t *data_ptr, int length)
+{
+	auto async_encryption = [this, &ioc, data_ptr, length](auto &&handler) mutable
+		{
+			std::shared_ptr handler_pair = std::make_shared<std::remove_cvref_t<decltype(handler)>>(std::move(handler));
+			parallel_pool.submit_detach([this, &ioc, data_ptr, length, handler_pair]() mutable
+				{
+					auto output_pair = encrypt_data(password, mode, data_ptr, length);
+					auto handler = std::move(*handler_pair.get());
+					asio::post(ioc, [output_pair = std::move(output_pair), handler = std::move(handler)]() mutable
+						{
+							handler(std::move(output_pair));
+						});
+				});
+		};
+	return asio::async_initiate<decltype(asio::use_awaitable), void(std::pair<std::string, size_t>)>(async_encryption, asio::use_awaitable);
+}
+
+asio::awaitable<std::vector<uint8_t>> async_cipher_operations::async_encrypt(asio::io_context &ioc, const void *data_ptr, int length, std::string &error_message)
+{
+	auto async_encryption = [this, &ioc, data_ptr, length, &error_message](auto &&handler) mutable
+		{
+			std::shared_ptr handler_pair = std::make_shared<std::remove_cvref_t<decltype(handler)>>(std::move(handler));
+			parallel_pool.submit_detach([this, &ioc, data_ptr, length, &error_message, handler_pair]() mutable
+				{
+					std::vector<uint8_t> output_data = encrypt_data(password, mode, data_ptr, length, error_message);
+					auto handler = std::move(*handler_pair.get());
+					asio::post(ioc, [output_data = std::move(output_data), handler = std::move(handler)]() mutable
+						{
+							handler(std::move(output_data));
+						});
+				});
+		};
+	return asio::async_initiate<decltype(asio::use_awaitable), void(std::vector<uint8_t>)>(async_encryption, asio::use_awaitable);
+}
+
+asio::awaitable<std::vector<uint8_t>> async_cipher_operations::async_encrypt(asio::io_context &ioc, std::vector<uint8_t> &&plain_data, std::string &error_message)
+{
+	auto async_encryption = [this, &ioc, plain_data = std::move(plain_data), &error_message](auto &&handler) mutable
+		{
+			std::shared_ptr handler_pair = std::make_shared<std::remove_cvref_t<decltype(handler)>>(std::move(handler));
+			parallel_pool.submit_detach([this, &ioc, plain_data = std::move(plain_data), &error_message, handler_pair]() mutable
+				{
+					std::vector<uint8_t> output_data = encrypt_data(password, mode, std::move(plain_data), error_message);
+					auto handler = std::move(*handler_pair.get());
+					asio::post(ioc, [output_data = std::move(output_data), handler = std::move(handler)]() mutable
+						{
+							handler(std::move(output_data));
+						});
+				});
+		};
+	return asio::async_initiate<decltype(asio::use_awaitable), void(std::vector<uint8_t>)>(async_encryption, asio::use_awaitable);
+}
+
+asio::awaitable<std::pair<std::string, size_t>> async_cipher_operations::async_decrypt(asio::io_context &ioc, uint8_t *data_ptr, int length)
+{
+	auto async_decryption = [this, &ioc, data_ptr, length](auto &&handler) mutable
+		{
+			std::shared_ptr handler_pair = std::make_shared<std::remove_cvref_t<decltype(handler)>>(std::move(handler));
+			parallel_pool.submit_detach([this, &ioc, data_ptr, length, handler_pair]() mutable
+				{
+					auto output_pair = decrypt_data(password, mode, data_ptr, length);
+					auto handler = std::move(*handler_pair.get());
+					asio::post(ioc, [output_pair = std::move(output_pair), handler = std::move(handler)]() mutable
+						{
+							handler(std::move(output_pair));
+						});
+				});
+		};
+	return asio::async_initiate<decltype(asio::use_awaitable), void(std::pair<std::string, size_t>)>(async_decryption, asio::use_awaitable);
+}
+
+asio::awaitable<std::vector<uint8_t>> async_cipher_operations::async_decrypt(asio::io_context &ioc, const void *data_ptr, int length, std::string &error_message)
+{
+	auto async_decryption = [this, &ioc, data_ptr, length, &error_message](auto &&handler) mutable
+		{
+			std::shared_ptr handler_pair = std::make_shared<std::remove_cvref_t<decltype(handler)>>(std::move(handler));
+			parallel_pool.submit_detach([this, &ioc, data_ptr, length, &error_message, handler_pair]() mutable
+				{
+					std::vector<uint8_t> output_data = decrypt_data(password, mode, data_ptr, length, error_message);
+					auto handler = std::move(*handler_pair.get());
+					asio::post(ioc, [output_data = std::move(output_data), handler = std::move(handler)]() mutable
+						{
+							handler(std::move(output_data));
+						});
+				});
+		};
+	return asio::async_initiate<decltype(asio::use_awaitable), void(std::vector<uint8_t>)>(async_decryption, asio::use_awaitable);
+}
+
+asio::awaitable<std::vector<uint8_t>> async_cipher_operations::async_decrypt(asio::io_context &ioc, std::vector<uint8_t> &&cipher_data, std::string &error_message)
+{
+	auto async_decryption = [this, &ioc, cipher_data = std::move(cipher_data), &error_message](auto &&handler) mutable
+		{
+			std::shared_ptr handler_pair = std::make_shared<std::remove_cvref_t<decltype(handler)>>(std::move(handler));
+			parallel_pool.submit_detach([this, &ioc, cipher_data = std::move(cipher_data), &error_message, handler_pair]() mutable
+				{
+					std::vector<uint8_t> output_data = decrypt_data(password, mode, std::move(cipher_data), error_message);
+					auto handler = std::move(*handler_pair.get());
+					asio::post(ioc, [output_data = std::move(output_data), handler = std::move(handler)]() mutable
+						{
+							handler(std::move(output_data));
+						});
+				});
+		};
+	return asio::async_initiate<decltype(asio::use_awaitable), void(std::vector<uint8_t>)>(async_decryption, asio::use_awaitable);
+}
+

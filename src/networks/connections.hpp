@@ -20,7 +20,6 @@
 #include <asio.hpp>
 
 #include "../shares/share_defines.hpp"
-#include "../3rd_party/thread_pool.hpp"
 #include "../3rd_party/fecpp.hpp"
 #include "stun.hpp"
 
@@ -28,38 +27,26 @@
 using asio::ip::tcp;
 using asio::ip::udp;
 
-constexpr size_t TASK_COUNT_LIMIT = 8192u;
 constexpr uint8_t TIME_GAP = std::numeric_limits<uint8_t>::max();	//seconds
 constexpr size_t BUFFER_SIZE = 2048u;
 constexpr size_t BUFFER_EXPAND_SIZE = 128u;
 constexpr size_t EMPTY_PACKET_SIZE = 1430u;
 constexpr size_t SMALL_PACKET_DATA_SIZE = 3u;
-constexpr size_t RAW_HEADER_SIZE = 9u;
 constexpr size_t RETRY_TIMES = 30u;
 constexpr size_t RETRY_WAITS = 2u;
 constexpr size_t CLEANUP_WAITS = 10u;	// second
-constexpr uint16_t FEC_WAITS = 3u;	// second
+constexpr uint16_t FEC_WAITS = 3u;	// times
 constexpr auto STUN_RESEND = std::chrono::seconds(30);
 constexpr auto FINDER_TIMEOUT_INTERVAL = std::chrono::seconds(1);
 constexpr auto CHANGEPORT_UPDATE_INTERVAL = std::chrono::seconds(1);
 constexpr auto KEEP_ALIVE_UPDATE_INTERVAL = std::chrono::seconds(1);
-constexpr auto LOGGING_GAP = std::chrono::seconds(30);
+constexpr auto LOGGING_GAP = std::chrono::seconds(60);
 constexpr auto EXPRING_UPDATE_INTERVAL = std::chrono::seconds(2);
 const asio::ip::udp::endpoint local_empty_target_v4(asio::ip::make_address_v4("127.0.0.1"), 70);
 const asio::ip::udp::endpoint local_empty_target_v6(asio::ip::make_address_v6("::1"), 70);
 
 
-struct udp_mappings;
-class udp_server;
-
-using udp_server_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, udp_server*)>;
-using udp_client_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
-using sequence_callback_t = std::function<void(size_t, ttp::task_callback, std::unique_ptr<uint8_t[]>)>;
-
 int64_t right_now();
-
-void empty_udp_server_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, udp_server *tmp3);
-void empty_udp_client_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3);
 
 enum class feature : uint8_t
 {
@@ -76,7 +63,7 @@ enum class hop_status : uint8_t
 	testing
 };
 
-enum class task_type { sequence, in_place };
+enum class task_type { sequence, direct, in_place };
 
 namespace packet
 {
@@ -99,7 +86,13 @@ namespace packet
 		uint8_t data[1];
 	};
 #pragma pack(pop)
+}
 
+constexpr size_t RAW_HEADER_SIZE = sizeof(packet::packet_layer) - 1;
+constexpr size_t RAW_HEADER_FEC_SIZE = sizeof(packet::packet_layer_fec) - 1;
+
+namespace packet
+{
 	uint64_t htonll(uint64_t value) noexcept;
 	uint64_t ntohll(uint64_t value) noexcept;
 	int64_t htonll(int64_t value) noexcept;
@@ -121,12 +114,10 @@ namespace packet
 	{
 	private:
 		const uint32_t iden;
-		std::weak_ptr<udp_mappings> udp_session_ptr;
 
 	public:
 		data_wrapper() = delete;
-		data_wrapper(uint32_t id, std::weak_ptr<udp_mappings> related_session_ptr) :
-			iden(id), udp_session_ptr(related_session_ptr) {}
+		data_wrapper(uint32_t id) : iden(id) {}
 
 		static uint32_t extract_iden(const std::vector<uint8_t> &input_data) noexcept
 		{
@@ -148,12 +139,12 @@ namespace packet
 			ptr->iden = htonl(iden);
 		}
 
-		std::tuple<uint32_t, feature, const uint8_t *, size_t> receive_data(const uint8_t *input_data, size_t length)
+		std::tuple<uint32_t, feature, uint8_t *, size_t> receive_data(uint8_t *input_data, size_t length)
 		{
-			const packet_layer *ptr = (const packet_layer *)input_data;
+			packet_layer *ptr = (packet_layer *)input_data;
 			uint32_t timestamp = little_endian_to_host(ptr->timestamp);
 			feature feature_value = ptr->feature_value;
-			const uint8_t *data_ptr = ptr->data;
+			uint8_t *data_ptr = ptr->data;
 			size_t data_size = length - (data_ptr - input_data);
 
 			return { timestamp, feature_value, data_ptr, data_size };
@@ -171,17 +162,17 @@ namespace packet
 			return { timestamp, feature_value, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
 		}
 
-		std::tuple<packet_layer_fec, const uint8_t *, size_t> receive_data_with_fec(const uint8_t *input_data, size_t length)
+		std::tuple<packet_layer_fec, uint8_t *, size_t> receive_data_with_fec(uint8_t *input_data, size_t length)
 		{
 			packet_layer_fec packet_header{};
-			const packet_layer_fec *ptr = (const packet_layer_fec *)input_data;
+			packet_layer_fec *ptr = (packet_layer_fec *)input_data;
 			packet_header.timestamp = little_endian_to_host(ptr->timestamp);
 			packet_header.iden = ntohl(ptr->iden);
 			packet_header.feature_value = ptr->feature_value;
 			packet_header.sn = ntohl(ptr->sn);
 			packet_header.sub_sn = ptr->sub_sn;
 
-			const uint8_t *data_ptr = ptr->data;
+			uint8_t *data_ptr = ptr->data;
 			size_t data_size = length - (data_ptr - input_data);
 
 			return { packet_header, data_ptr, data_size };
@@ -203,10 +194,25 @@ namespace packet
 			return { packet_header, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
 		}
 
+		std::pair<uint8_t *, size_t> prepend_header(feature feature_value, uint8_t *input_ptr, size_t data_size) const
+		{
+			auto timestamp = right_now();
+			constexpr size_t header_size = RAW_HEADER_SIZE;
+			uint8_t *data_ptr = input_ptr - header_size;
+			size_t new_size = header_size + data_size;
+
+			packet_layer *ptr = (packet_layer *)data_ptr;
+			ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
+			ptr->iden = htonl(iden);
+			ptr->feature_value = feature_value;
+
+			return { data_ptr, new_size };
+		}
+
 		std::pair<std::unique_ptr<uint8_t[]>, size_t> pack_data(feature feature_value, const uint8_t *input_data, size_t data_size) const
 		{
 			auto timestamp = right_now();
-			size_t new_size = sizeof(packet_layer) - 1 + data_size;
+			size_t new_size = RAW_HEADER_SIZE + data_size;
 			std::unique_ptr<uint8_t[]> new_data = std::make_unique_for_overwrite<uint8_t[]>(new_size + BUFFER_EXPAND_SIZE);
 
 			packet_layer *ptr = (packet_layer *)new_data.get();
@@ -224,7 +230,7 @@ namespace packet
 		size_t pack_data(feature feature_value, uint8_t *input_data, size_t data_size) const
 		{
 			auto timestamp = right_now();
-			size_t new_size = sizeof(packet_layer) - 1 + data_size;
+			size_t new_size = RAW_HEADER_SIZE + data_size;
 			uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
 
 			packet_layer *ptr = (packet_layer *)new_data;
@@ -241,10 +247,27 @@ namespace packet
 			return new_size;
 		}
 
+		std::pair<uint8_t *, size_t> prepend_header_fec(feature feature_value, uint8_t *input_ptr, size_t data_size, uint32_t sn, uint8_t sub_sn) const
+		{
+			auto timestamp = right_now();
+			constexpr size_t header_size = RAW_HEADER_FEC_SIZE;
+			uint8_t *data_ptr = input_ptr - header_size;
+			size_t new_size = header_size + data_size;
+
+			packet_layer_fec *ptr = (packet_layer_fec *)data_ptr;
+			ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
+			ptr->iden = htonl(iden);
+			ptr->feature_value = feature_value;
+			ptr->sn = htonl(sn);
+			ptr->sub_sn = sub_sn;
+
+			return { data_ptr, new_size };
+		}
+
 		std::pair<std::unique_ptr<uint8_t[]>, size_t> pack_data_with_fec(feature feature_value, const uint8_t *input_data, size_t data_size, uint32_t sn, uint8_t sub_sn) const
 		{
 			auto timestamp = right_now();
-			size_t new_size = sizeof(packet_layer_fec) - 1 + data_size;
+			size_t new_size = RAW_HEADER_FEC_SIZE + data_size;
 			std::unique_ptr<uint8_t[]> new_data = std::make_unique_for_overwrite<uint8_t[]>(new_size + BUFFER_EXPAND_SIZE);
 
 			packet_layer_fec *ptr = (packet_layer_fec *)new_data.get();
@@ -264,7 +287,7 @@ namespace packet
 		size_t pack_data_with_fec(feature feature_value, uint8_t *input_data, size_t data_size, uint32_t sn, uint8_t sub_sn) const
 		{
 			auto timestamp = right_now();
-			size_t new_size = sizeof(packet_layer_fec) - 1 + data_size;
+			size_t new_size = RAW_HEADER_FEC_SIZE + data_size;
 			uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
 
 			packet_layer_fec *ptr = (packet_layer_fec *)new_data;
@@ -302,12 +325,19 @@ namespace packet
 			return iden_number;
 		}
 
-		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_random_small_packet() const
+		std::pair<std::unique_ptr<uint8_t[]>, size_t> static create_random_small_packet()
 		{
 			constexpr size_t data_size = sizeof(uint32_t) * SMALL_PACKET_DATA_SIZE;
 			std::unique_ptr<uint8_t[]> data = std::make_unique_for_overwrite<uint8_t[]>(BUFFER_SIZE);
 			std::fill_n((uint32_t*)data.get(), SMALL_PACKET_DATA_SIZE, generate_token_number());
 			return { std::move(data), data_size };
+		}
+
+		size_t static create_random_small_packet(uint8_t *input_ptr)
+		{
+			constexpr size_t data_size = sizeof(uint32_t) * SMALL_PACKET_DATA_SIZE;
+			std::fill_n(input_ptr, SMALL_PACKET_DATA_SIZE, generate_token_number());
+			return data_size;
 		}
 
 		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_small_packet() const
@@ -328,6 +358,22 @@ namespace packet
 			return { std::move(data), data_size };
 		}
 
+		size_t create_small_packet(uint8_t *input_ptr) const
+		{
+			constexpr size_t data_size = sizeof(uint32_t) * SMALL_PACKET_DATA_SIZE;
+			uint32_t fill_number = htonl(iden);
+			std::fill_n((uint32_t*)input_ptr, SMALL_PACKET_DATA_SIZE, fill_number);
+			return data_size;
+		}
+
+		size_t create_small_packet(uint8_t *input_ptr, uint32_t input_iden) const
+		{
+			constexpr size_t data_size = sizeof(uint32_t) * SMALL_PACKET_DATA_SIZE;
+			uint32_t fill_number = htonl(input_iden);
+			std::fill_n((uint32_t*)input_ptr, SMALL_PACKET_DATA_SIZE, fill_number);
+			return data_size;
+		}
+
 		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_keep_alive_packet() const
 		{
 			auto [data, data_size] = create_random_small_packet();
@@ -335,11 +381,37 @@ namespace packet
 			return { std::move(data), packed_size };
 		}
 
+		std::pair<uint8_t *, size_t> create_keep_alive_packet(uint8_t *input_ptr) const
+		{
+			size_t data_size = create_random_small_packet(input_ptr);
+			auto [data, packed_size] = prepend_header(feature::keep_alive, input_ptr, data_size);
+			return { data, packed_size };
+		}
+
+		std::pair<uint8_t *, size_t> create_keep_alive_packet_with_fec(uint8_t *input_ptr, uint32_t sn, uint8_t sub_sn) const
+		{
+			size_t data_size = create_random_small_packet(input_ptr);
+			auto [data, packed_size] = prepend_header_fec(feature::keep_alive, input_ptr, data_size, sn, sub_sn);
+			return { data, packed_size };
+		}
+
 		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_keep_alive_response_packet() const
 		{
 			auto [data, data_size] = create_random_small_packet();
 			size_t packed_size = pack_data(feature::keep_alive_response, data.get(), data_size);
 			return { std::move(data), packed_size };
+		}
+
+		std::pair<uint8_t *, size_t> create_keep_alive_response_packet(uint8_t *input_ptr) const
+		{
+			size_t data_size = create_random_small_packet(input_ptr);
+			return prepend_header(feature::keep_alive_response, input_ptr, data_size);
+		}
+
+		std::pair<uint8_t *, size_t> create_keep_alive_response_packet_with_fec(uint8_t *input_ptr, uint32_t sn, uint8_t sub_sn) const
+		{
+			size_t data_size = create_random_small_packet(input_ptr);
+			return prepend_header_fec(feature::keep_alive_response, input_ptr, data_size, sn, sub_sn);
 		}
 
 		std::pair<std::unique_ptr<uint8_t[]>, size_t> create_test_connection_packet() const
@@ -355,141 +427,36 @@ namespace packet
 			size_t packed_size = pack_data(feature::test_connection, data.get(), data_size);
 			return { std::move(data), packed_size };
 		}
+
+		std::pair<uint8_t *, size_t> create_test_connection_packet(uint8_t *input_ptr) const
+		{
+			size_t data_size = create_small_packet(input_ptr);
+			auto [data, packed_size] = prepend_header(feature::test_connection, input_ptr, data_size);
+			return { data, packed_size };
+		}
+
+		std::pair<uint8_t *, size_t> create_test_connection_packet_with_fec(uint8_t *input_ptr, uint32_t sn, uint8_t sub_sn) const
+		{
+			size_t data_size = create_small_packet(input_ptr);
+			auto [data, packed_size] = prepend_header_fec(feature::test_connection, input_ptr, data_size, sn, sub_sn);
+			return { data, packed_size };
+		}
+
+		std::pair<uint8_t *, size_t> create_test_connection_packet(uint8_t *input_ptr, uint32_t input_iden) const
+		{
+			size_t data_size = create_small_packet(input_ptr, input_iden);
+			auto [data, packed_size] = prepend_header(feature::test_connection, input_ptr, data_size);
+			return { data, packed_size };
+		}
+
+		std::pair<uint8_t *, size_t> create_test_connection_packet_with_fec(uint8_t *input_ptr, uint32_t input_iden, uint32_t sn, uint8_t sub_sn) const
+		{
+			size_t data_size = create_small_packet(input_ptr, input_iden);
+			auto [data, packed_size] = prepend_header_fec(feature::test_connection, input_ptr, data_size, sn, sub_sn);
+			return { data, packed_size };
+		}
 	};
 }
-
-class udp_server
-{
-public:
-	udp_server() = delete;
-	udp_server(asio::io_context &net_io, const udp::endpoint &ep, udp_server_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
-		: binded_endpoint(ep), resolver(net_io), connection_socket(net_io), callback(callback_func), ip_version_only(ip_ver_only), task_type_running(task_type::in_place)
-	{
-		initialise(ep);
-		start_receive();
-	}
-	udp_server(asio::io_context &net_io, sequence_callback_t task_function, const udp::endpoint &ep, udp_server_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
-		: binded_endpoint(ep), task_type_running(task_type::sequence), push_task_seq(task_function), resolver(net_io), connection_socket(net_io), callback(callback_func), ip_version_only(ip_ver_only)
-	{
-		initialise(ep);
-		start_receive();
-	}
-	void continue_receive();
-	void async_send_out(std::unique_ptr<std::vector<uint8_t>> data, udp::endpoint client_endpoint);
-	void async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer_endpoint);
-	void async_send_out(std::unique_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint);
-	void async_send_out(std::vector<uint8_t> &&data, udp::endpoint client_endpoint);
-	void async_send_out(std::vector<uint8_t> &&data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint);
-	udp::resolver& get_resolver() { return resolver; }
-
-private:
-	void initialise(udp::endpoint ep);
-	void start_receive();
-	void handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred);
-
-	udp::resolver resolver;
-	udp::socket connection_socket;
-	const udp::endpoint binded_endpoint;
-	udp::endpoint incoming_endpoint;
-	udp_server_callback_t callback;
-	task_type task_type_running;
-	sequence_callback_t push_task_seq;
-	const ip_only_options ip_version_only;
-	static inline std::atomic<size_t> task_count{};
-};
-
-class udp_client
-{
-public:
-	udp_client() = delete;
-	udp_client(asio::io_context &io_context, udp_client_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
-		: task_type_running(task_type::in_place), connection_socket(io_context), resolver(io_context), callback(callback_func),
-		last_receive_time(right_now()), last_send_time(right_now()), paused(false), stopped(false), ip_version_only(ip_ver_only)
-	{
-		initialise();
-	}
-	udp_client(asio::io_context &io_context, sequence_callback_t task_function, udp_client_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
-		: task_type_running(task_type::in_place), push_task_seq(task_function), connection_socket(io_context), resolver(io_context), callback(callback_func),
-		last_receive_time(right_now()), last_send_time(right_now()), paused(false), stopped(false), ip_version_only(ip_ver_only)
-	{
-		initialise();
-	}
-
-	void pause(bool set_as_pause);
-	void stop();
-	bool is_pause();
-	bool is_stop();
-
-	udp::resolver::results_type get_remote_hostname(const std::string &remote_address, asio::ip::port_type port_num, asio::error_code &ec);
-	udp::resolver::results_type get_remote_hostname(const std::string &remote_address, const std::string &port_num, asio::error_code &ec);
-
-	void disconnect();
-
-	void async_receive();
-
-	size_t send_out(const std::vector<uint8_t> &data, udp::endpoint peer_endpoint, asio::error_code &ec);
-	size_t send_out(const uint8_t *data, size_t size, udp::endpoint peer_endpoint, asio::error_code &ec);
-
-	void async_send_out(std::unique_ptr<std::vector<uint8_t>> data, udp::endpoint peer_endpoint);
-	void async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer_endpoint);
-	void async_send_out(std::unique_ptr<uint8_t[]> data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint);
-	void async_send_out(std::vector<uint8_t> &&data, udp::endpoint peer_endpoint);
-	void async_send_out(std::vector<uint8_t> &&data, const uint8_t *data_ptr, size_t data_size, udp::endpoint client_endpoint);
-
-	int64_t time_gap_of_receive();
-	int64_t time_gap_of_send();
-
-protected:
-	void initialise();
-
-	void start_receive();
-
-	void handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred);
-
-	udp::socket connection_socket;
-	udp::resolver resolver;
-	udp::endpoint incoming_endpoint;
-	udp_client_callback_t callback;
-	alignas(64) std::atomic<int64_t> last_receive_time;
-	alignas(64) std::atomic<int64_t> last_send_time;
-	alignas(64) std::atomic<bool> paused;
-	alignas(64) std::atomic<bool> stopped;
-	task_type task_type_running;
-	sequence_callback_t push_task_seq;
-	const ip_only_options ip_version_only;
-	static inline std::atomic<size_t> task_count{};
-};
-
-
-class forwarder : public udp_client
-{
-public:
-	using process_data_t = std::function<void(std::weak_ptr<udp_mappings>, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
-	forwarder() = delete;
-
-	forwarder(asio::io_context &io_context, std::weak_ptr<udp_mappings> input_session, process_data_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set) :
-		udp_client(io_context, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), ip_ver_only),
-		udp_session_mappings(input_session), callback(callback_func) {}
-
-	forwarder(asio::io_context &io_context, sequence_callback_t task_function, std::weak_ptr<udp_mappings> input_session, process_data_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set) :
-		udp_client(io_context, task_function, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), ip_ver_only),
-		udp_session_mappings(input_session), callback(callback_func) {}
-
-private:
-	void handle_receive(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
-	{
-		if (paused.load() || stopped.load())
-			return;
-
-		if (udp_session_mappings.expired())
-			return;
-
-		callback(udp_session_mappings, std::move(data), data_size, peer, local_port_number);
-	}
-
-	std::weak_ptr<udp_mappings> udp_session_mappings;
-	process_data_t callback;
-};
 
 struct fec_control_data
 {
@@ -501,61 +468,25 @@ struct fec_control_data
 	fecpp::fec_code fecc;
 };
 
-struct encryption_result
-{
-	std::string error_message;
-	std::unique_ptr<uint8_t[]> data;
-	size_t data_size;
-	std::shared_ptr<udp::endpoint> udp_endpoint;
-};
-
-struct decryption_result_listener
-{
-	std::string error_message;
-	std::unique_ptr<uint8_t[]> data;
-	size_t data_size;
-	udp::endpoint udp_endpoint;
-	udp_server *listener;
-};
-
-struct decryption_result_forwarder
-{
-	std::string error_message;
-	std::unique_ptr<uint8_t[]> data;
-	size_t data_size;
-	udp::endpoint udp_endpoint;
-	asio::ip::port_type port_number;
-};
-
 struct udp_mappings
 {
+	using udp_socket = asio::use_awaitable_t<>::as_default_on_t<asio::ip::udp::socket>;
 	std::unique_ptr<packet::data_wrapper> wrapper_ptr;
 #ifdef __cpp_lib_atomic_shared_ptr
 	std::atomic<std::shared_ptr<udp::endpoint>> ingress_source_endpoint;
 	std::atomic<std::shared_ptr<udp::endpoint>> egress_target_endpoint;
 	std::atomic<std::shared_ptr<udp::endpoint>> egress_previous_target_endpoint;
-	std::atomic<std::shared_ptr<forwarder>> egress_forwarder;	// client only
+	std::atomic<std::shared_ptr<udp_socket>> egress_forwarder;	// client only
 #else
 	std::shared_ptr<udp::endpoint> ingress_source_endpoint;
 	std::shared_ptr<udp::endpoint> egress_target_endpoint;
 	std::shared_ptr<udp::endpoint> egress_previous_target_endpoint;
-	std::shared_ptr<forwarder> egress_forwarder;	// client only
+	std::shared_ptr<udp_socket> egress_forwarder;	// client only
 #endif
 	std::atomic<size_t> egress_endpoint_index;
-	alignas(64) std::atomic<udp_server*> ingress_sender;
-	std::unique_ptr<udp_client> local_udp;	// server only
+	alignas(64) std::atomic<udp_socket *> ingress_sender;
+	std::shared_ptr<udp_socket> local_udp;	// server only
 	alignas(64) std::atomic<int64_t> hopping_timestamp;
-	alignas(64) std::atomic<hop_status> hopping_available;
-	std::unique_ptr<packet::data_wrapper> hopping_wrapper_ptr;
-	std::atomic<size_t> hopping_endpoint_index;
-#ifdef __cpp_lib_atomic_shared_ptr
-	std::atomic<std::shared_ptr<forwarder>> egress_hopping_forwarder;
-	std::atomic<std::shared_ptr<udp::endpoint>> hopping_endpoint;
-#else
-	std::shared_ptr<forwarder> egress_hopping_forwarder;
-	std::shared_ptr<udp::endpoint> hopping_endpoint;
-#endif
-	std::function<void()> mapping_function = []() {};
 	fec_control_data fec_ingress_control;
 	fec_control_data fec_egress_control;
 	alignas(64) std::atomic<int64_t> keep_alive_ingress_timestamp{ std::numeric_limits<int64_t>::max() };
@@ -564,15 +495,6 @@ struct udp_mappings
 	alignas(64) std::atomic<int64_t> last_inress_send_time{ std::numeric_limits<int64_t>::max() };
 	alignas(64) std::atomic<int64_t> last_egress_receive_time{ std::numeric_limits<int64_t>::max() };
 	alignas(64) std::atomic<int64_t> last_egress_send_time{ std::numeric_limits<int64_t>::max() };
-	//std::mutex mutex_encryptions_via_listener;
-	//std::deque<std::future<encryption_result>> encryptions_via_listener;
-	//std::mutex mutex_encryptions_via_forwarder;
-	//std::deque<std::future<encryption_result>> encryptions_via_forwarder;
-	//std::mutex mutex_decryptions_from_forwarder;
-	//std::deque<std::future<decryption_result_forwarder>> decryptions_from_forwarder;
-	//std::atomic<int> listener_encryption_task_count;
-	//std::atomic<int> forwarder_encryption_task_count;
-	//std::atomic<int> forwarder_decryption_task_count;
 };
 
 int64_t time_gap_of_ingress_receive(udp_mappings *ptr);
@@ -580,10 +502,6 @@ int64_t time_gap_of_ingress_send(udp_mappings *ptr);
 int64_t time_gap_of_egress_receive(udp_mappings *ptr);
 int64_t time_gap_of_egress_send(udp_mappings *ptr);
 
-
-std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, ip_only_options ip_version_only = ip_only_options::not_set);
-std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host, ip_only_options ip_version_only = ip_only_options::not_set);
-void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, rfc8489::stun_header *header, ip_only_options ip_version_only = ip_only_options::not_set);
 template<typename T>
 auto split_resolved_addresses(const asio::ip::basic_resolver_results<T> &input_addresses)
 {

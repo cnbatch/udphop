@@ -102,20 +102,23 @@ encryption_algorithm=AES-GCM
 
 |  名称                | 可设置值            | 必填 |备注|
 |  ----                | ----               | ---- | ---- |
-| mode                 | client<br>server   |是    |客户端<br>服务端|
+| mode                 | client<br />server<br />relay   |是    |客户端<br />服务端<br />中继模式|
 | listen_on            | 域名或 IP 地址      |否    |只能填写域名或 IP 地址。多个地址请用逗号分隔|
 | listen_port          | 1 - 65535          |是    |以服务端运行时可以指定端口范围|
 | destination_port     | 1 - 65535          |是    |以客户端运行时可以指定端口范围|
 | destination_address  | IP地址、域名        |是    |填入 IPv6 地址时不需要中括号。多个地址请用逗号分隔|
+| destination_dnstxt   | 域名               |否    |仅接受单个地址，仅限客户端使用。从DNS TXT记录当中获取IP地址及端口号。使用该参数时，不必填写destination_address及destination_port|
 | dport_refresh        | 20 - 65535         |否    |单位“秒”。预设值 60 秒，小于20秒按20秒算，大于65535时按65536秒算|
 | encryption_algorithm | XOR<br>AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |否    |单纯异或运算<br>AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>不加密 |
 | encryption_password  | 任意字符            |视情况|设置了 encryption_algorithm 使用加密时必填，none与XOR除外|
 | timeout              | 0 - 65535          |否    |单位“秒”。预设值为 1800，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ udphop 之间的超时设置 |
 | keep_alive           | 0 - 65535          |否    |预设值为 0，等于停用 Keep Alive |
 | stun_server          | STUN 服务器地址     |否    |listen_port 为端口范围模式时不可使用|
+| update_ipv4          | 可执行文件的路径     |否    |用于保存stun获得的信息，请往后阅读|
+| update_ipv6          | 可执行文件的路径     |否    |用于保存stun获得的信息，请往后阅读|
 | log_path             | 存放 Log 的目录     |否    |不能指向文件本身|
-| ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |否|若系统禁用了 IPv6，须启用该选项并设为 yes 或 true 或 1|
-| ipv6_only | yes<br>true<br>1<br>no<br>false<br>0 |否|忽略 IPv4 地址|
+| ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |否|纯 IPv4 模式|
+| ipv6_only | yes<br>true<br>1<br>no<br>false<br>0 |否|纯 IPv6 模式|
 | fec                  | uint8:uint8        |否    |格式为 `fec=D:R`，例如可以填入 `fec=20:3`。<br>注意：D + R 的总数最大值为 255，不能超过这个数。<br>冒号两侧任意一个值为 0 表示不使用该选项。两端的设置必须相同。|
 | \[listener\] | N/A |是<br>(仅限中继模式)|中继模式的标签，用于指定监听模式的 UDPHop 设置<br>该标签表示与客户端交互数据|
 | \[forwarder\] | N/A  |是<br>(仅限中继模式)|中继模式的标签，用于指定转运模式的 UDPHop 设置<br>该标签表示与服务端交互数据|
@@ -139,7 +142,33 @@ FEC 格式为 `fec=D:R`，其中 D 表示原始数据量，R 表示冗余数据�
 
 如果不需要写入 Log 文件，那就删除 `log_path` 这一行。
 
+### STUN 选项
+
+这三个参数仅限服务器模式、中继模式时使用：
+- stun_server
+- update_ipv4
+- update_ipv6
+
+设置好 `update_ipv4` 或 `update_ipv4` 之后，程序会运行对应程序，把 stun 获取到的IP地址及端口传递过去。
+
+例如，设置了
+```
+update_ipv4=/home/test/update_to_dnsv4
+update_ipv6=/home/test/update_to_dnsv6
+```
+
+从 stun 获取到的地址、端口号分别是130.131.132.133、23456，那么运行的文件及传递的参数是：
+
+```
+/home/test/update_to_dnsv4 130.131.132.133:23456
+```
+如果获取到的地址、端口号分别是2409:ABCD:FEDC:3210::1、23456，那么运行的文件及传递的参数是：
+```
+/home/test/update_to_dnsv6 [2409:ABCD:FEDC:3210::1]:23456
+```
+
 ### STUN Servers
+
 从[NatTypeTeste](https://github.com/HMBSbige/NatTypeTester)找到的普通 STUN 服务器：
 - stun.syncthing.net
 - stun.qq.com
@@ -161,6 +190,35 @@ FEC 格式为 `fec=D:R`，其中 D 表示原始数据量，R 表示冗余数据�
 - stun.voipgate.com
 
 其它 STUN 服务器：[public-stun-list.txt](https://gist.github.com/mondain/b0ec1cf5f60ae726202e)
+
+### DNS TXT
+从TXT类型的域名当中获取一段文字内容，该文字内容包含**单个**IP地址及端口号。
+
+文字内容的格式示例（IPv4地址）：
+```
+192.168.0.1:65001
+```
+
+文字内容的格式示例（IPv6地址）：
+```
+[::1]:65001
+```
+
+无效格式示例：
+```
+192.168.0.1:65001,[::1]:65001
+```
+不可以同时提供多个地址
+
+```
+[192.168.0.1]:65001
+```
+IPv4不需要使用中括号
+
+```
+2409:abcd:dcba::1:65001
+```
+IPv6必须使用中括号
 
 ---
 
@@ -218,11 +276,11 @@ chmod +x /usr/local/bin/udphop
 - [botan3](https://github.com/randombit/botan)
 
 ### Windows
-请事先使用 vcpkg 安装依赖包 `asio`，一句命令即可：
+请事先使用 vcpkg 安装依赖包 `asio` 及 botan3，一句命令即可：
 
 ```
-vcpkg install asio:x64-windows asio:x64-windows-static
-vcpkg install botan:x64-windows botan:x64-windows-static
+vcpkg install asio:x64-windows asio:x64-windows-static botan:x64-windows botan:x64-windows-static
+vcpkg install botan:x64-windows botan:x64-windows-static botan:x64-windows botan:x64-windows-static
 ```
 （如果需要 ARM 或者 32 位 x86 版本，请自行调整选项）
 
@@ -242,19 +300,75 @@ cmake ..
 make
 ```
 
-### 其它 BSD
-步骤与 FreeBSD 类似，NetBSD 请使用 [pkgin](https://www.netbsd.org/docs/pkgsrc/using.html) 安装依赖项与 cmake：
+### NetBSD
+请使用 [pkgin](https://www.netbsd.org/docs/pkgsrc/using.html) 安装依赖项与 cmake：
 ```
-pkgin install asio
-pkgin install cmake
+pkgin install asio botan3 cmake
 ```
-OpenBSD 请使用 `pkg_add` 安装上述两个依赖性。DragonflyBSD 请使用 `pkg`，用法与 FreeBSD 相同。
 
-由于 botan-3 仍未被这几个 BSD 系统收录，须自行编译 botan-3。
+由于系统内置的GCC版本较低，须额外安装新版GCC：
 
-剩余的构建步骤请参考上述的 FreeBSD。
+```
+pkgin install gcc13
+```
+接着在 build 目录当中构建
+```
+mkdir build
+cd build
+cmake -D CMAKE_CXX_COMPILER=/usr/pkg/gcc13/bin/c++ -D CMAKE_C_COMPILER=/usr/pkg/gcc13/bin/cc ..
+make
+```
 
-注意，由于这几个 BSD 自带的编译器版本较低，请事先额外安装高版本 GCC。
+### OpenBSD
+
+OpenBSD 请使用 `pkg_add` 安装依赖项与 cmake：
+
+```
+pkg_add asio
+pkg_add cmake
+```
+
+目前 botan-3 仍未被 OpenBSD 收录，须自行编译 botan-3。建议编译完成后放入 `/usr/local/include/`，完整路径为 `/usr/local/include/botan-3/`，就像FreeBSD那样。
+
+由于系统内置的Clang版本较低，须额外安装新版Clang：
+
+```
+pkg_add llvm
+```
+
+请选择最新版本。
+
+接着在 build 目录当中构建：
+```
+mkdir build
+cd build
+cmake -D CMAKE_CXX_COMPILER=/usr/local/bin/clang++-19 -D CMAKE_C_COMPILER=/usr/local/bin/clang-19 ..
+make
+```
+
+### DragonflyBSD
+
+与 FreeBSD 一样，使用 `pkg` 安装依赖项与 cmake：
+
+```
+pkg install asio cmake
+```
+
+目前 botan-3 仍未被 DragonflyBSD 收录，须自行编译 botan-3。建议编译完成后放入 `/usr/local/include/`，完整路径为 `/usr/local/include/botan-3/`，就像FreeBSD那样。
+
+由于系统内置的GCC版本较低，须额外安装新版GCC：
+
+```
+pkg install gcc14
+```
+
+接着在 build 目录当中构建
+```
+mkdir build
+cd build
+cmake -D CMAKE_CXX_COMPILER=/usr/local/bin/c++14 -D CMAKE_C_COMPILER=/usr/local/bin/gcc14 -D CMAKE_INSTALL_RPATH=/usr/local/lib/gcc14 -D CMAKE_BUILD_WITH_INSTALL_RPATH=ON ..
+make
+```
 
 ### Linux
 步骤与 FreeBSD 类似，请用发行版自带的包管理器安装 asio 与 botan3 以及 cmake。
@@ -400,7 +514,7 @@ root      soft    nofile       300000
 ## 关于代码
 
 ### 线程池
-udphop 使用的线程池来自于 [BS::thread_pool](https://github.com/bshoshany/thread-pool)，另外再做了些许修改，用于多连接时的并行加解密处理。
+udphop 使用的线程池来自于 [task-thread-pool](https://github.com/alugowski/task-thread-pool)，用于多连接时的并行加解密处理。
 
 ### FEC
 

@@ -1,4 +1,5 @@
 #pragma once
+#include <asio.hpp>
 #include "share_defines.hpp"
 
 #ifndef _CONFIGURATIONS_HPP_

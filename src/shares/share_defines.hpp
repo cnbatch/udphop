@@ -4,6 +4,7 @@
 #define _SHARE_DEFINES_
 
 #include <atomic>
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 #include <string>
@@ -12,14 +13,24 @@
 #include <map>
 #include <random>
 #include <filesystem>
+#include <type_traits>
+#include <concepts>
+#include <ranges>
+#include <thread>
 #ifdef __cpp_lib_format
 #include <format>
 #endif
 #include "aead.hpp"
-#include "../3rd_party/thread_pool.hpp"
+#include "../3rd_party/task_thread_pool.hpp"
+
+#ifdef __linux__	
+constexpr bool linux_system = true;
+#else
+constexpr bool linux_system = false;
+#endif
 
 constexpr std::string_view app_name = "udphop";
-constexpr std::string_view app_version = "20250415";
+constexpr std::string_view app_version = "20250816";
 
 enum class running_mode { unknow, empty, server, client, relay, relay_ingress, relay_egress };
 enum class encryption_mode { unknow, empty, none, plain_xor, aes_gcm, aes_ocb, chacha20, xchacha20 };
@@ -94,8 +105,8 @@ struct user_settings
 	uint16_t dynamic_port_refresh = constant_values::dport_refresh_default;	// seconds
 	uint16_t keep_alive = 0;	// seconds
 	uint16_t timeout = 0;	 // seconds
-	uint8_t fec_data = 0;
-	uint8_t fec_redundant = 0;
+	uint8_t fec_original_packet_count = 0;
+	uint8_t fec_redundant_packet_count = 0;
 	encryption_mode encryption = encryption_mode::empty;
 	running_mode mode = running_mode::empty;
 	ip_only_options ip_version_only = ip_only_options::not_set;
@@ -103,8 +114,11 @@ struct user_settings
 	std::vector<uint16_t> listen_ports;
 	std::vector<uint16_t> destination_ports;
 	std::vector<std::string> destination_address_list;
+	std::string destination_dnstxt;
 	std::string encryption_password;
 	std::string stun_server;
+	std::string update_ipv4_path;
+	std::string update_ipv6_path;
 	std::filesystem::path log_directory;
 	std::filesystem::path log_ip_address;
 	std::filesystem::path log_messages;
@@ -114,6 +128,28 @@ struct user_settings
 	std::shared_ptr<user_settings> egress;
 };
 
+struct status_records
+{
+	alignas(64) std::atomic<size_t> ingress_raw_traffic;
+	alignas(64) std::atomic<size_t> ingress_raw_traffic_each_second;
+	alignas(64) std::atomic<size_t> ingress_raw_traffic_peak;
+	alignas(64) std::atomic<size_t> ingress_raw_traffic_valley;
+	alignas(64) std::atomic<size_t> egress_raw_traffic;
+	alignas(64) std::atomic<size_t> egress_raw_traffic_each_second;
+	alignas(64) std::atomic<size_t> egress_raw_traffic_peak;
+	alignas(64) std::atomic<size_t> egress_raw_traffic_valley;
+	alignas(64) std::atomic<size_t> fec_recovery_count;
+	alignas(64) std::atomic<size_t> fec_raw_packet_count;
+	alignas(64) std::atomic<size_t> fec_raw_redund_count;
+};
+
+class traffic_pv_records
+{
+public:
+	std::vector<size_t> ingress_traffic_counter;
+	std::vector<size_t> egress_traffic_counter;
+};
+
 #pragma pack (push, 1)
 struct fec_container
 {
@@ -121,14 +157,6 @@ struct fec_container
 	uint8_t data[1];
 };
 #pragma pack(pop)
-
-//struct task_pool_colloector
-//{
-//	ttp::task_thread_pool *parallel_encryption_pool;
-//	ttp::task_thread_pool *parallel_decryption_pool;
-//	ttp::task_thread_pool *listener_parallels;
-//	ttp::task_thread_pool *forwarder_parallels;
-//};
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
 std::set<uint16_t> port_range_to_vector(const std::string &input_str, std::vector<std::string> &error_msg, const std::string &acting_role);
@@ -147,10 +175,44 @@ T calculate_difference(T number_left, T number_right)
 	return std::abs(number_left - number_right);
 }
 
+template <typename T>
+struct is_std_shared_ptr : std::false_type {};
+template <typename T>
+struct is_std_shared_ptr<std::shared_ptr<T>> : std::true_type {};
+
+#ifdef __cpp_lib_atomic_shared_ptr
+template <typename T>
+struct is_atomic_shared_ptr : std::false_type {};
+template <typename T>
+struct is_atomic_shared_ptr<std::atomic<T>> : is_std_shared_ptr<T> {};
+
+template <typename T>
+concept IsAtomicSharedPtr = is_atomic_shared_ptr<std::remove_cvref_t<T>>::value;
+
+template <typename PtrT>
+	requires IsAtomicSharedPtr<PtrT>
+auto load_atomic_ptr(PtrT &ptr)
+{
+	return ptr.load();
+}
+#else
+template <typename T>
+concept IsStdSharedPtr = is_std_shared_ptr<std::remove_cvref_t<T>>::value;
+
+template <typename PtrT>
+	requires IsStdSharedPtr<PtrT>
+auto load_atomic_ptr(PtrT &ptr)
+{
+	return std::atomic_load(&ptr);
+}
+#endif
+
+
 std::string time_to_string();
 std::string time_to_string_with_square_brackets();
 void print_ip_to_file(const std::string &message, const std::filesystem::path &log_file);
 void print_message_to_file(const std::string &message, const std::filesystem::path &log_file);
 void print_status_to_file(const std::string &message, const std::filesystem::path &log_file);
+std::string to_speed_unit(size_t value, size_t duration_seconds);
 
 #endif // !_SHARE_HEADER_

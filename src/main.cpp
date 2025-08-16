@@ -9,9 +9,9 @@
 #include "shares/share_defines.hpp"
 #include "shares/string_utils.hpp"
 #include "networks/connections.hpp"
-#include "networks/client.hpp"
-#include "networks/server.hpp"
-#include "networks/relay.hpp"
+#include "modes/client.hpp"
+#include "modes/server.hpp"
+#include "modes/relay.hpp"
 
 int main(int argc, char *argv[])
 {
@@ -20,7 +20,7 @@ int main(int argc, char *argv[])
 	if (argc <= 1)
 	{
 		std::cout << std::format("Usage: {} config1.conf\n", app_name);
-		std::cout << std::format("       {} config1.conf config2.conf...\n", (int)app_name.length(), app_name.data());
+		std::cout << std::format("       {} config1.conf config2.conf...\n", app_name);
 		return 0;
 	}
 #else
@@ -33,38 +33,15 @@ int main(int argc, char *argv[])
 	}
 #endif
 
-	//uint16_t thread_group_count = 2;
-	//int io_thread_count = std::thread::hardware_concurrency() == 1 ? 1 : 2;
-	//std::unique_ptr<ttp::task_thread_pool> parallel_pool_1;
-	//std::unique_ptr<ttp::task_thread_pool> parallel_pool_2;
-	//if (std::thread::hardware_concurrency() > 2)
-	//{
-	//	auto thread_counts = std::thread::hardware_concurrency();
-	//	thread_group_count = thread_counts;
-	//	io_thread_count = (int)round(log2(thread_counts));
-	//}
+	unsigned pool_thread_count = std::thread::hardware_concurrency() + 1;
+	task_thread_pool::task_thread_pool parallel_pool(pool_thread_count);
 
-	//if (std::thread::hardware_concurrency() > 1)
-	//{
-	//	parallel_pool_1 = std::make_unique<ttp::task_thread_pool>();
-	//	parallel_pool_2 = std::make_unique<ttp::task_thread_pool>();
-	//}
-
-	//ttp::task_group_pool task_groups{ thread_group_count };
-	//task_pool_colloector task_pools =
-	//{
-	//	.parallel_encryption_pool = parallel_pool_1.get(),
-	//	.parallel_decryption_pool = parallel_pool_2.get(),
-	//	.listener_parallels = parallel_pool_1.get(),
-	//	.forwarder_parallels = parallel_pool_2.get()
-	//};
-
-	//asio::io_context ioc{ io_thread_count };
-	asio::io_context ioc;
-
-	std::vector<client_mode> clients;
-	std::vector<relay_mode> relays;
-	std::vector<server_mode> servers;
+	asio::io_context network_io{1};
+	asio::io_context task_context{1};
+	
+	std::vector<modes::client_mode> clients2;
+	std::vector<modes::relay_mode> relays2;
+	std::vector<modes::server_mode> servers2;
 	std::vector<user_settings> profile_settings;
 
 	bool error_found = false;
@@ -79,11 +56,12 @@ int main(int argc, char *argv[])
 		}
 		
 		std::vector<std::string> lines;
+		std::string line;
 		std::ifstream input(argv[i]);
-		std::copy(
-			std::istream_iterator<std::string>(input),
-			std::istream_iterator<std::string>(),
-			std::back_inserter(lines));
+		while (std::getline(input, line))
+		{
+			lines.push_back(line);
+		}
 
 		std::vector<std::string> error_msg;
 		user_settings current_settings = parse_from_args(lines, error_msg);
@@ -118,43 +96,46 @@ int main(int argc, char *argv[])
 		switch (settings.mode)
 		{
 		case running_mode::client:
-			clients.emplace_back(client_mode(ioc, /*task_groups, task_pools,*/ settings));
+			clients2.emplace_back(modes::client_mode(network_io, task_context, parallel_pool, settings));
 			break;
 		case running_mode::relay:
-			relays.emplace_back(relay_mode(ioc, /*task_groups, task_pools,*/ settings));
+			relays2.emplace_back(modes::relay_mode(network_io, task_context, parallel_pool, settings));
 			break;
 		case running_mode::server:
-			servers.emplace_back(server_mode(ioc, /*task_groups, task_pools,*/ settings));
+			servers2.emplace_back(modes::server_mode(network_io, task_context, parallel_pool, settings));
 			break;
 		default:
 			break;
 		}
 	}
 
-	std::cout << "Servers: " << servers.size() << "\n";
-	std::cout << "Relays: " << relays.size() << "\n";
-	std::cout << "Clients: " << clients.size() << "\n";
+	std::cout << "Servers: " << servers2.size() << "\n";
+	std::cout << "Relays: " << relays2.size() << "\n";
+	std::cout << "Clients: " << clients2.size() << "\n";
 
 	bool started_up = true;
 
-	for (server_mode &server : servers)
+	for (modes::server_mode &server : servers2)
 	{
 		started_up = server.start() && started_up;
 	}
-	
-	for (relay_mode &relay : relays)
+
+	for (modes::relay_mode &relay : relays2)
 	{
 		started_up = relay.start() && started_up;
 	}
 
-	for (client_mode &client : clients)
+	for (modes::client_mode &client : clients2)
 	{
 		started_up = client.start() && started_up;
 	}
 
 	if (!error_found && started_up)
 	{
-		ioc.run();
+		std::thread t([&]() { task_context.run(); });
+		t.detach();
+		network_io.run();
+		task_context.stop();
 	}
 
 	return 0;
