@@ -111,42 +111,6 @@ namespace modes
 			}
 			else udp_session_ptr = iter->second;
 
-#if 0
-			// 恢复到co_spawn版本
-			if (fec_enabled)
-			{
-				fec_maker(udp_session_ptr, std::move(data), data_buffer_ptr, bytes_read);
-			}
-			else
-			{
-				auto [packed_data, packed_data_size] = udp_session_ptr->wrapper_ptr->prepend_header(feature::raw_data, data_buffer_ptr, bytes_read);
-				//auto [error_message, cipher_size] = co_await cipher_operations.async_encrypt(packed_data, (int)packed_data_size);
-				//if (!error_message.empty() || cipher_size == 0)
-				//	co_return;
-				//std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
-				//std::shared_ptr<udp::endpoint> egress_target_endpoint = load_atomic_ptr(udp_session_ptr->egress_target_endpoint);
-				//co_await egress_forwarder->async_send_to(asio::buffer(packed_data, cipher_size), *egress_target_endpoint, asio::redirect_error(asio::use_awaitable, ec));
-
-				std::shared_ptr<uint8_t[]> original_cache_sp = std::move(data);
-				parallel_pool.submit_detach([this, udp_session_ptr, original_cache_sp, packed_data, packed_data_size]() mutable
-					{
-						auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, packed_data, (int)packed_data_size);
-						if (!error_message.empty() || cipher_size == 0)
-							return;
-						auto asio_buffer = asio::buffer(packed_data, cipher_size);
-						std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
-						std::shared_ptr<udp::endpoint> egress_target_endpoint = load_atomic_ptr(udp_session_ptr->egress_target_endpoint);
-						egress_forwarder->async_send_to(asio_buffer, *egress_target_endpoint, [original_cache_sp](auto, auto) {});
-						status_counters.egress_raw_traffic += cipher_size;
-					});
-			}
-
-			udp_session_ptr->last_ingress_receive_time.store(right_now());
-			udp_session_ptr->last_egress_send_time.store(right_now());
-			std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
-			inspect_change_port_status(udp_session_ptr, egress_forwarder);
-#endif
-			// 改成task_context
 			co_spawn(task_context, udp_listener_incoming_existing_connection(std::move(data), data_ptr, bytes_read, listener_socket, udp_session_ptr), detached);
 		}
 	}
@@ -400,15 +364,6 @@ namespace modes
 			status_counters.ingress_raw_traffic += bytes_read;
 			status_counters.ingress_raw_traffic_each_second += bytes_read;
 			co_spawn(task_context, udp_forwarder_incoming_to_udp_unpack(udp_session_ptr, forwarder_socket, std::move(data), data_ptr, bytes_read, remote_udp_endpoint), detached);
-
-			/*std::shared_ptr<uint8_t[]> original_cache_sp = std::move(data);
-			parallel_pool.submit_detach([this, udp_session_ptr, forwarder_socket, original_cache_sp, data_ptr, bytes_read, remote_udp_endpoint]()
-				{
-					auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)bytes_read);
-					if (!error_message.empty() || plain_size == 0)
-						return;
-					co_spawn(task_context, udp_forwarder_incoming_to_udp_unpack(udp_session_ptr, forwarder_socket, std::move(original_cache_sp), data_ptr, plain_size, remote_udp_endpoint), detached);
-				});*/
 		}
 
 		for (auto iter = udp_endpoint_map_to_session.begin(), next = iter; iter != udp_endpoint_map_to_session.end(); iter = next)

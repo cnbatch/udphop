@@ -121,27 +121,6 @@ namespace modes
 				continue;
 
 			co_spawn(task_context, udp_listener_incoming_unpack(listener_socket, from_udp_endpoint, std::move(data), data_ptr, bytes_read), detached);
-			//auto [error_message, plain_size] = co_await cipher_operations.async_decrypt(data_ptr, (int)bytes_read);
-			//if (!error_message.empty() || plain_size == 0)
-			//	continue;
-
-			//uint32_t iden = packet::data_wrapper::extract_iden(data_ptr);
-			//if (iden == 0)
-			//{
-			//	udp_listener_response_test_connection(listener_socket, data_ptr, plain_size, from_udp_endpoint);
-			//	continue;
-			//}
-
-			//if (auto wrapper_channel_iter = udp_session_channels.find(iden);
-			//	wrapper_channel_iter == udp_session_channels.end())
-			//{
-			//	udp_listener_incoming_new_connection(data_ptr, plain_size, from_udp_endpoint, listener_socket);
-			//	continue;
-			//}
-			//else
-			//{
-			//	co_spawn(network_io, udp_listener_incoming_existing_connection(std::move(data), data_ptr, plain_size, from_udp_endpoint, listener_socket, wrapper_channel_iter->second), detached);
-			//}
 		}
 	}
 
@@ -166,9 +145,6 @@ namespace modes
 			co_return;
 		}
 		else udp_session_ptr = wrapper_channel_iter->second;
-		//{
-		//	co_spawn(network_io, udp_listener_incoming_existing_connection(std::move(data), data_ptr, plain_size, from_udp_endpoint, listener_socket, wrapper_channel_iter->second), detached);
-		//}
 
 		auto [packet_timestamp, feature_value, received_data, received_size] = udp_session_ptr->wrapper_ptr->receive_data(data_ptr, plain_size);
 		if (received_size == 0 || packet_timestamp == 0)
@@ -242,7 +218,7 @@ namespace modes
 
 		uint32_t iden = packet::data_wrapper::extract_iden(data_ptr);
 		std::shared_ptr<udp_mappings> udp_session_ptr = std::make_shared<udp_mappings>();
-		udp_session_ptr->wrapper_ptr = std::make_unique<packet::data_wrapper>(iden/*, udp_session_ptr*/);
+		udp_session_ptr->wrapper_ptr = std::make_unique<packet::data_wrapper>(iden);
 		packet::data_wrapper *data_wrapper_ptr = udp_session_ptr->wrapper_ptr.get();
 
 		auto [packet_timestamp, feature_value, received_data, received_size] = data_wrapper_ptr->receive_data(data_ptr, data_size);
