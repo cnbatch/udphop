@@ -34,7 +34,7 @@ constexpr size_t EMPTY_PACKET_SIZE = 1430u;
 constexpr size_t SMALL_PACKET_DATA_SIZE = 3u;
 constexpr size_t RETRY_TIMES = 30u;
 constexpr size_t RETRY_WAITS = 2u;
-constexpr size_t CLEANUP_WAITS = 10u;	// second
+constexpr size_t DEAD_LINK_TIMES_UP = 40u;	// second
 constexpr uint16_t FEC_WAITS = 3u;	// times
 constexpr auto STUN_RESEND = std::chrono::seconds(30);
 constexpr auto FINDER_TIMEOUT_INTERVAL = std::chrono::seconds(1);
@@ -492,7 +492,7 @@ struct udp_mappings
 	alignas(64) std::atomic<int64_t> keep_alive_ingress_timestamp{ std::numeric_limits<int64_t>::max() };
 	alignas(64) std::atomic<int64_t> keep_alive_egress_timestamp{ std::numeric_limits<int64_t>::max() };
 	alignas(64) std::atomic<int64_t> last_ingress_receive_time{ std::numeric_limits<int64_t>::max() };
-	alignas(64) std::atomic<int64_t> last_inress_send_time{ std::numeric_limits<int64_t>::max() };
+	alignas(64) std::atomic<int64_t> last_ingress_send_time{ std::numeric_limits<int64_t>::max() };
 	alignas(64) std::atomic<int64_t> last_egress_receive_time{ std::numeric_limits<int64_t>::max() };
 	alignas(64) std::atomic<int64_t> last_egress_send_time{ std::numeric_limits<int64_t>::max() };
 };

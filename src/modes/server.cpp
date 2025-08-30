@@ -327,8 +327,7 @@ namespace modes
 			std::unique_ptr<uint8_t[]> data_copy = std::make_unique<uint8_t[]>(data_size);
 			std::copy_n(data_ptr, data_size, data_copy.get());
 			auto asio_buffer = asio::buffer(data_copy.get(), data_size);
-			local_udp->async_send_to(asio_buffer, *udp_target,
-				[data_ = std::move(data_copy)](const asio::error_code &error, size_t bytes_transferred) {});
+			local_udp->async_send_to(asio_buffer, *udp_target, [data_ = std::move(data_copy)](auto, auto) {});
 			status_counters.egress_raw_traffic += data_size;
 			status_counters.egress_raw_traffic_each_second += data_size;
 		}
@@ -341,75 +340,13 @@ namespace modes
 		{
 			udp_session_ptr->local_udp = local_udp;
 			udp_session_ptr->last_ingress_receive_time.store(right_now());
+			udp_session_ptr->last_ingress_send_time.store(right_now());
+			udp_session_ptr->last_egress_receive_time.store(right_now());
 			udp_session_ptr->last_egress_send_time.store(right_now());
 			connect_success = true;
 		}
 
 		return connect_success;
-	}
-
-	asio::awaitable<void> server_mode::udp_listener_incoming_existing_connection(std::unique_ptr<uint8_t[]> original_cache, uint8_t *data_ptr, size_t data_size, udp::endpoint from_udp_endpoint, udp_socket &listener_socket, std::shared_ptr<udp_mappings> udp_session_ptr)
-	{
-		if (!listener_socket.is_open())
-			co_return;
-
-		auto [packet_timestamp, feature_value, received_data, received_size] = udp_session_ptr->wrapper_ptr->receive_data(data_ptr, data_size);
-		if (received_size == 0 || packet_timestamp == 0 || feature_value == feature::test_connection)
-			co_return;
-
-		auto timestamp = right_now();
-		if (calculate_difference<int64_t>((uint32_t)timestamp, packet_timestamp) > TIME_GAP)
-			co_return;
-
-		udp_session_ptr->ingress_sender.store(&listener_socket);
-
-		std::shared_ptr<udp_socket> local_udp = udp_session_ptr->local_udp;
-		if (local_udp == nullptr)
-			co_return;
-
-		if (fec_enabled)
-		{
-			auto [fec_data_ptr, fec_data_size] = fec_unpack(udp_session_ptr, data_ptr, data_size);
-			if (fec_data_ptr == nullptr)
-				co_return;
-			received_data = fec_data_ptr;
-			received_size = fec_data_size;
-		}
-
-		if (std::shared_ptr<udp::endpoint> ingress_source_endpoint = load_atomic_ptr(udp_session_ptr->ingress_source_endpoint);
-			ingress_source_endpoint == nullptr || *ingress_source_endpoint != from_udp_endpoint)
-			std::atomic_store(&(udp_session_ptr->ingress_source_endpoint), std::make_shared<udp::endpoint>(from_udp_endpoint));
-
-		asio::error_code ec;
-		switch (feature_value)
-		{
-		case feature::keep_alive:
-		{
-			uint8_t *response_init_ptr = data_ptr + RAW_HEADER_FEC_SIZE;
-			auto [response_packet_ptr, response_packet_size] = udp_session_ptr->wrapper_ptr->create_keep_alive_response_packet(response_init_ptr);
-			if (fec_enabled)
-				std::tie(response_packet_ptr, response_packet_size) = udp_session_ptr->wrapper_ptr->prepend_header_fec(feature::keep_alive_response, response_init_ptr, response_packet_size, 0, 0);
-
-			auto [error_message, cipher_size] = co_await cipher_operations.async_encrypt(network_io, response_packet_ptr, (int)response_packet_size);
-			if (!error_message.empty() || cipher_size == 0)
-				break;
-			co_await listener_socket.async_send_to(asio::buffer(response_packet_ptr, cipher_size), from_udp_endpoint, asio::redirect_error(asio::use_awaitable, ec));
-			break;
-		}
-		case feature::test_connection:
-			break;
-		case feature::keep_alive_response:
-			break;
-		case feature::raw_data:
-			co_await local_udp->async_send_to(asio::buffer(received_data, received_size), *udp_target, asio::redirect_error(asio::use_awaitable, ec));
-			status_counters.egress_raw_traffic += received_size;
-			status_counters.egress_raw_traffic_each_second += received_size;
-			udp_session_ptr->last_ingress_receive_time.store(right_now());
-			udp_session_ptr->last_egress_send_time.store(right_now());
-			break;
-		default:
-			break;
-		}
 	}
 
 	asio::awaitable<void> server_mode::udp_connector_incoming(std::weak_ptr<udp_mappings> udp_session_weak_ptr)
@@ -427,7 +364,7 @@ namespace modes
 			uint8_t *data_buffer_ptr = data.get() + RAW_HEADER_FEC_SIZE;
 			size_t bytes_read = co_await udp_session_ptr->local_udp->async_receive_from(asio::buffer(data_buffer_ptr, BUFFER_SIZE), from_udp_endpoint, asio::redirect_error(asio::use_awaitable, ec));
 			if (ec)
-				break;
+				continue;
 
 			if (bytes_read == 0)
 				continue;
@@ -455,8 +392,19 @@ namespace modes
 			}
 
 			udp_session_ptr->last_egress_receive_time.store(right_now());
-			udp_session_ptr->last_inress_send_time.store(right_now());
+			udp_session_ptr->last_ingress_send_time.store(right_now());
 		}
+
+		if (udp_session_ptr->local_udp == nullptr)
+		{
+			std::cout << "udp_session_ptr->local_udp == nullptr\n";
+			co_return;
+		}
+
+		if(udp_session_ptr->local_udp->is_open())
+			std::cout << "udp_session_ptr->local_udp loop ends\n";
+		else
+			std::cout << "udp_session_ptr->local_udp is closed\n";
 	}
 
 	void server_mode::udp_listener_response_test_connection(udp_socket &listener_socket, uint8_t *data_ptr, size_t data_size, udp::endpoint from_udp_endpoint)

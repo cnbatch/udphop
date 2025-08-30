@@ -192,7 +192,7 @@ update_ipv6=/home/test/update_to_dnsv6
 其它 STUN 服务器：[public-stun-list.txt](https://gist.github.com/mondain/b0ec1cf5f60ae726202e)
 
 ### DNS TXT
-从TXT类型的域名当中获取一段文字内容，该文字内容包含**单个**IP地址及端口号。
+从TXT类型的域名当中获取一段文字内容，该文字内容包含**单个**主机地址及端口号。
 
 文字内容的格式示例（IPv4地址）：
 ```
@@ -202,6 +202,11 @@ update_ipv6=/home/test/update_to_dnsv6
 文字内容的格式示例（IPv6地址）：
 ```
 [::1]:65001
+```
+
+文字内容的格式示例（域名）：
+```
+example.com:65001
 ```
 
 无效格式示例：

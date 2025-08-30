@@ -146,20 +146,20 @@ namespace packet
 
 int64_t time_gap_of_ingress_receive(udp_mappings *ptr)
 {
-	return calculate_difference(right_now(), ptr->last_ingress_receive_time.load());
+	return right_now() - ptr->last_ingress_receive_time.load();
 }
 
 int64_t time_gap_of_ingress_send(udp_mappings *ptr)
 {
-	return calculate_difference(right_now(), ptr->last_inress_send_time.load());
+	return right_now() - ptr->last_ingress_send_time.load();
 }
 
 int64_t time_gap_of_egress_receive(udp_mappings *ptr)
 {
-	return calculate_difference(right_now(), ptr->last_egress_receive_time.load());
+	return right_now() - ptr->last_egress_receive_time.load();
 }
 
 int64_t time_gap_of_egress_send(udp_mappings *ptr)
 {
-	return calculate_difference(right_now(), ptr->last_inress_send_time.load());
+	return right_now() - ptr->last_ingress_send_time.load();
 }

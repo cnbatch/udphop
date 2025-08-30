@@ -172,6 +172,8 @@ namespace modes
 			status_counters.egress_raw_traffic += cipher_size;
 			status_counters.egress_raw_traffic_each_second += cipher_size;
 			udp_session_ptr->last_ingress_receive_time.store(right_now());
+			udp_session_ptr->last_ingress_send_time.store(right_now());
+			udp_session_ptr->last_egress_receive_time.store(right_now());
 			udp_session_ptr->last_egress_send_time.store(right_now());
 			co_spawn(network_io, udp_forwarder_incoming_to_udp(udp_session_ptr, forwarder_socket), detached);
 		}
@@ -317,12 +319,28 @@ namespace modes
 							});
 					});
 			};
-		auto [ip_address, port_num] = co_await asio::async_initiate<decltype(asio::use_awaitable), void(std::pair<asio::ip::address, asio::ip::port_type>)>(async_update, asio::use_awaitable);
-
+		std::string dnstxt_content = co_await asio::async_initiate<decltype(asio::use_awaitable), void(std::string)>(async_update, asio::use_awaitable);
 		if (error_msg.empty())
 		{
-			current_settings.destination_ports.front() = port_num;
-			target_address.front() = std::make_shared<asio::ip::address>(ip_address);
+			auto [host_address, ip_address, port_num] = dns_helper::dns_split_address(dnstxt_content, error_msg);
+
+			if (error_msg.empty())
+			{
+				current_settings.destination_ports.resize(1);
+				current_settings.destination_ports.front() = port_num;
+				target_address.resize(1);
+				target_address.front() = std::make_shared<asio::ip::address>(ip_address);
+			}
+			else
+			{
+				if (!host_address.empty() && port_num != 0)
+				{
+					current_settings.destination_address_list.resize(1);
+					current_settings.destination_address_list.front() = host_address;
+					current_settings.destination_ports.resize(1);
+					current_settings.destination_ports.front() = port_num;
+				}
+			}
 		}
 		else
 		{
@@ -436,7 +454,7 @@ namespace modes
 			std::shared_ptr<udp::endpoint> ingress_source_endpoint = load_atomic_ptr(udp_session_ptr->ingress_source_endpoint);
 			co_await udp_session_ptr->ingress_sender.load()->async_send_to(asio::buffer(received_data_ptr, received_size), *ingress_source_endpoint, asio::redirect_error(asio::use_awaitable, ec));
 			udp_session_ptr->last_egress_receive_time.store(right_now());
-			udp_session_ptr->last_inress_send_time.store(right_now());
+			udp_session_ptr->last_ingress_send_time.store(right_now());
 			break;
 		}
 		default:
@@ -750,15 +768,23 @@ namespace modes
 		{
 			next++;
 			std::shared_ptr<udp_mappings> udp_session_ptr = iter->second;
+			std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
 			if (time_gap_of_ingress_receive(udp_session_ptr.get()) > current_settings.timeout ||
 				time_gap_of_ingress_send(udp_session_ptr.get()) > current_settings.timeout)
 			{
-				std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
 				udp_session_ptr->egress_forwarder = nullptr;
 				udp_endpoint_map_to_session.erase(iter);
 				udp_session_channels.erase(udp_session_ptr->wrapper_ptr->get_iden());
 				if (egress_forwarder != nullptr)
 					egress_forwarder->close();
+			}
+			else if (time_gap_of_egress_receive(udp_session_ptr.get()) > DEAD_LINK_TIMES_UP ||
+			         time_gap_of_egress_send(udp_session_ptr.get()) > DEAD_LINK_TIMES_UP)
+			{
+				if (udp_session_ptr->hopping_timestamp.load() == LLONG_MAX || egress_forwarder == nullptr || !egress_forwarder->is_open())
+					continue;
+				udp_session_ptr->hopping_timestamp.store(LLONG_MAX);
+				co_spawn(network_io, change_new_port(udp_session_ptr, egress_forwarder), detached);
 			}
 		}
 
@@ -915,7 +941,7 @@ namespace modes
 		else
 		{
 			std::vector<std::string> error_msg;
-			auto [ip_address, port_num] = dns_helper::query_dns_txt(current_settings.destination_dnstxt, error_msg);
+			std::string dnstxt_content = dns_helper::query_dns_txt(current_settings.destination_dnstxt, error_msg);
 			if (!error_msg.empty())
 			{
 				for (auto &msg : error_msg)
@@ -924,10 +950,38 @@ namespace modes
 				}
 				return false;
 			}
-			current_settings.destination_ports.resize(1);
-			current_settings.destination_ports.front() = port_num;
-			target_address.resize(1);
-			target_address.front() = std::make_shared<asio::ip::address>(ip_address);
+
+			auto [host_address, ip_address, port_num] = dns_helper::dns_split_address(dnstxt_content, error_msg);
+
+			if (error_msg.empty())
+			{
+				current_settings.destination_address_list.resize(1);
+				current_settings.destination_address_list.front() = ip_address.to_string();
+				current_settings.destination_ports.resize(1);
+				current_settings.destination_ports.front() = port_num;
+				target_address.resize(1);
+				target_address.front() = std::make_shared<asio::ip::address>(ip_address);
+			}
+			else
+			{
+				if (host_address.empty() || port_num == 0)
+				{
+					for (auto &msg : error_msg)
+					{
+						std::cerr << msg << "\n";
+					}
+					return false;
+				}
+
+				current_settings.destination_address_list.resize(1);
+				current_settings.destination_address_list.front() = host_address;
+				current_settings.destination_ports.resize(1);
+				current_settings.destination_ports.front() = port_num;
+				target_address.resize(1);
+
+				asio::steady_timer timer(network_io);
+				co_spawn(network_io, update_udp_target_task(0, std::move(timer)), detached);
+			}
 	
 			asio::steady_timer timer(network_io);
 			co_spawn(network_io, update_dnstxt_task(std::move(timer)), detached);

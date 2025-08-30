@@ -30,7 +30,7 @@ constexpr bool linux_system = false;
 #endif
 
 constexpr std::string_view app_name = "udphop";
-constexpr std::string_view app_version = "20250816";
+constexpr std::string_view app_version = "20250830";
 
 enum class running_mode { unknow, empty, server, client, relay, relay_ingress, relay_egress };
 enum class encryption_mode { unknow, empty, none, plain_xor, aes_gcm, aes_ocb, chacha20, xchacha20 };

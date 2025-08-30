@@ -6,17 +6,14 @@
 
 using namespace str_utils;
 
-std::pair<asio::ip::address, asio::ip::port_type> dns_split_address(const std::string &input_address, std::vector<std::string> &error_msg);
-
-std::pair<asio::ip::address, asio::ip::port_type> dns_split_address(const std::string &input_address, std::vector<std::string> &error_msg)
+dns_helper::dnstxt_results_t dns_helper::dns_split_address(const std::string &input_address, std::vector<std::string> &error_msg)
 {
-	asio::ip::address output_address;
-	asio::ip::port_type output_port = 0;
+	dnstxt_results_t dnstxt_result;
 	auto colon = input_address.rfind(':');
 	if (colon == input_address.npos)
 	{
 		error_msg.emplace_back("Format Incorrect");
-		return { output_address , output_port };
+		return dnstxt_result;
 	}
 
 	bool correct_address = false;
@@ -34,7 +31,7 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_split_address(const std::s
 		if (port_number > 0 && port_number < 65536)
 		{
 			correct_port = true;
-			output_port = (asio::ip::port_type)port_number;
+			dnstxt_result.port_number = (asio::ip::port_type)port_number;
 		}
 	}
 	catch (...)
@@ -57,16 +54,17 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_split_address(const std::s
 				address_name.pop_back();
 
 				asio::error_code ec;
-				output_address = asio::ip::address_v6::from_string(address_name, ec);
+				dnstxt_result.ip_address = asio::ip::address_v6::from_string(address_name, ec);
 				correct_address = !ec;
 			}
 		}
 		else
 		{
 			asio::error_code ec;
-			output_address = asio::ip::address_v4::from_string(address_name, ec);
+			dnstxt_result.ip_address = asio::ip::address_v4::from_string(address_name, ec);
 			correct_address = !ec;
 		}
+		dnstxt_result.host_address = address_name;
 	}
 
 	if (!correct_address)
@@ -75,7 +73,7 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_split_address(const std::s
 	if (!correct_port)
 		error_msg.emplace_back("Port Number Incorrect");
 
-	return { output_address , output_port };
+	return dnstxt_result;
 }
 
 
@@ -122,14 +120,13 @@ void dns_helper::save_ddns_result(const std::string &exe_path, asio::ip::address
 	}
 }
 
-std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(const std::string &fqdn, std::vector<std::string> &error_msg)
+std::string dns_helper::query_dns_txt(const std::string &fqdn, std::vector<std::string> &error_msg)
 {
-	asio::ip::address output_address;
-	asio::ip::port_type port_number = 0;
+	std::string host_address;
 	if (fqdn.empty())
 	{
 		error_msg.emplace_back("empty domain");
-		return { output_address, port_number };
+		return host_address;
 	}
 
 #ifdef __OpenBSD__
@@ -139,7 +136,7 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(cons
 	if (result != 0)
 	{
 		error_msg.emplace_back(std::string("getrrsetbyname: ") + hstrerror(h_errno));
-		return { output_address, port_number };
+		return host_address;
 	}
 
 	std::unique_ptr<rrsetinfo, decltype(&freerrset)> rrset_ptr(rrset, &freerrset);
@@ -147,7 +144,7 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(cons
 	if (rrset_ptr->rri_nrdatas == 0)
 	{
 		error_msg.emplace_back("No TXT records found.");
-		return { output_address, port_number };
+		return host_address;
 	}
 
 	for (unsigned int i = 0; i < rrset_ptr->rri_nrdatas; ++i)
@@ -164,9 +161,7 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(cons
 			if (ptr + txt_len <= end)
 			{
 				std::string ip_address_and_port((const char *)(ptr), txt_len);
-				std::tie(output_address, port_number) = dns_split_address(ip_address_and_port, error_msg);
-				if (error_msg.empty() && port_number != 0)
-					break;
+				host_address = std::move(ip_address_and_port);
 			}
 		}
 	}
@@ -176,7 +171,7 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(cons
 	if (res_init() != 0)
 	{
 		error_msg.emplace_back(std::string("res_init: ") + strerror(errno));
-		return { output_address, port_number };
+		return host_address;
 	}
 
 	unsigned char answer_buffer[NS_PACKETSZ] = {};
@@ -186,21 +181,21 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(cons
 	if (response_len < 0)
 	{
 		error_msg.emplace_back(std::string("res_query: ") + strerror(errno));
-		return { output_address, port_number };
+		return host_address;
 	}
 
 	ns_msg handle;
 	if (ns_initparse(answer_buffer, response_len, &handle) < 0)
 	{
 		error_msg.emplace_back(std::string("ns_initparse: ") + strerror(errno));
-		return { output_address, port_number };
+		return host_address;
 	}
 
 	int answer_count = ns_msg_count(handle, ns_s_an);
 	if (answer_count == 0)
 	{
 		error_msg.emplace_back("No TXT records found.");
-		return { output_address, port_number };
+		return host_address;
 	}
 
 	ns_rr rr;
@@ -221,14 +216,12 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(cons
 				ptr++;
 				std::string ip_address_and_port = std::string((const char *)ptr, txt_len);
 				ptr += txt_len;
-				std::tie(output_address, port_number) = dns_split_address(ip_address_and_port, error_msg);
-				if (error_msg.empty() && port_number != 0)
-					break;
+				host_address = std::move(ip_address_and_port);
 			}
 		}
 	}
 #endif
-	return { output_address, port_number };
+	return host_address;
 }
 #endif
 
@@ -305,21 +298,20 @@ void dns_helper::save_ddns_result(const std::string &exe_path, asio::ip::address
 	CloseHandle(pi.hThread);
 }
 
-std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(const std::string &fqdn, std::vector<std::string> &error_msg)
+std::string dns_helper::query_dns_txt(const std::string &fqdn, std::vector<std::string> &error_msg)
 {
-	asio::ip::address output_address;
-	asio::ip::port_type port_number = 0;
+	std::string host_address;
 	if (fqdn.empty())
 	{
 		error_msg.emplace_back("empty domain");
-		return { output_address, port_number };
+		return host_address;
 	}
 
 	std::wstring fqdn_w = string_to_wstring(fqdn);
 	if (fqdn_w.empty())
 	{
 		error_msg.emplace_back("empty domain");
-		return { output_address, port_number };
+		return host_address;
 	}
 
 	PDNS_RECORD pDnsRecord = NULL; 
@@ -330,7 +322,7 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(cons
 	if (status != ERROR_SUCCESS)
 	{
 		error_msg.emplace_back("Dns Query failure, error code: " + std::to_string(status));
-		return { output_address, port_number };
+		return host_address;
 	}
 
 	PDNS_RECORD pRecord = pDnsRecord;
@@ -341,7 +333,7 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(cons
 			for (DWORD i = 0; i < pRecord->Data.Txt.dwStringCount; i++)
 			{
 				std::wstring ip_address_and_port = pRecord->Data.Txt.pStringArray[i];
-				std::tie(output_address, port_number) = dns_split_address(wstring_to_string(ip_address_and_port), error_msg);
+				host_address = wstring_to_string(ip_address_and_port);
 			}
 			break;
 		}
@@ -351,7 +343,7 @@ std::pair<asio::ip::address, asio::ip::port_type> dns_helper::query_dns_txt(cons
 	if (pDnsRecord)
 		DnsRecordListFree(pDnsRecord, DnsFreeRecordList);
 
-	return { output_address, port_number };
+	return host_address;
 }
 #endif
 

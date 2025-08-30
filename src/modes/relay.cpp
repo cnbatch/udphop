@@ -361,6 +361,8 @@ namespace modes
 		udp_session_ptr->ingress_sender.store(&listener_socket);
 
 		udp_session_ptr->last_ingress_receive_time.store(right_now());
+		udp_session_ptr->last_ingress_send_time.store(right_now());
+		udp_session_ptr->last_egress_receive_time.store(right_now());
 		udp_session_ptr->last_egress_send_time.store(right_now());
 		co_spawn(network_io, udp_forwarder_incoming_to_udp(udp_session_ptr, forwarder_socket), detached);
 	}
@@ -576,7 +578,7 @@ namespace modes
 		}
 
 		udp_session_ptr->last_egress_receive_time.store(right_now());
-		udp_session_ptr->last_inress_send_time.store(right_now());
+		udp_session_ptr->last_ingress_send_time.store(right_now());
 	}
 
 	void relay_mode::udp_listener_response_test_connection(uint8_t *data_ptr, size_t data_size, udp::endpoint from_udp_endpoint, udp_socket &listener_socket)
@@ -1144,16 +1146,24 @@ namespace modes
 		{
 			next_iter++;
 			std::shared_ptr<udp_mappings> udp_session_ptr = iter->second;
+			std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
 			if (time_gap_of_ingress_receive(udp_session_ptr.get()) > current_settings.ingress->timeout ||
 				time_gap_of_ingress_send(udp_session_ptr.get()) > current_settings.ingress->timeout ||
 				time_gap_of_egress_receive(udp_session_ptr.get()) > current_settings.egress->timeout ||
 				time_gap_of_egress_send(udp_session_ptr.get()) > current_settings.egress->timeout)
 			{
-				std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
 				udp_session_ptr->egress_forwarder = nullptr;
 				udp_session_channels.erase(udp_session_ptr->wrapper_ptr->get_iden());
 				if(egress_forwarder != nullptr)
 					egress_forwarder->close();
+			}
+			else if (time_gap_of_egress_receive(udp_session_ptr.get()) > DEAD_LINK_TIMES_UP ||
+			         time_gap_of_egress_send(udp_session_ptr.get()) > DEAD_LINK_TIMES_UP)
+			{
+				if (udp_session_ptr->hopping_timestamp.load() == LLONG_MAX || egress_forwarder == nullptr || !egress_forwarder->is_open())
+					continue;
+				udp_session_ptr->hopping_timestamp.store(LLONG_MAX);
+				co_spawn(network_io, change_new_port(udp_session_ptr, egress_forwarder), detached);
 			}
 		}
 

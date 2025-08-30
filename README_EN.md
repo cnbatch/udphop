@@ -190,7 +190,7 @@ STUN Servers found in [Natter](https://github.com/MikeWang000000/Natter):
 Other STUN Servers: [public-stun-list.txt](https://gist.github.com/mondain/b0ec1cf5f60ae726202e)
 
 ### DNS TXT
-Retrieve a text string from the domain's TXT record. This text string contains **a single** IP address and port number.
+Retrieve a text string from the domain's TXT record. This text string contains **a single** host address and port number.
 
 Example format for the text content (IPv4 address):
 ```
@@ -200,6 +200,11 @@ Example format for the text content (IPv4 address):
 Example format for the text content (IPv6 address):
 ```
 [::1]:65001
+```
+
+Example format for the text content (domain name):
+```
+example.com:65001
 ```
 
 Invalid format examples:
