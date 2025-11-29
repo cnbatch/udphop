@@ -639,7 +639,10 @@ namespace modes
 			}
 
 			if (egress_target_new_endpoint == nullptr)
+			{
 				endpoint_changed = false;
+				egress_target_new_endpoint = egress_target_endpoint;
+			}
 
 			packet::data_wrapper wrapper(0);
 			auto [test_packet, test_packet_size] = wrapper.create_test_connection_packet();
@@ -687,8 +690,6 @@ namespace modes
 				co_return;
 			}
 
-			if (endpoint_changed)
-				udp_mappings_ptr->egress_target_endpoint = egress_target_new_endpoint;
 			udp_mappings_ptr->egress_forwarder = forwarder_new_socket;
 			co_spawn(network_io, udp_forwarder_incoming_to_udp(udp_mappings_ptr, forwarder_new_socket), detached);
 			co_spawn(network_io, close_old_socket(forwarder_socket), detached);

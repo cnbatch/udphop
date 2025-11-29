@@ -1016,7 +1016,10 @@ namespace modes
 			}
 
 			if (egress_target_new_endpoint == nullptr)
+			{
 				endpoint_changed = false;
+				egress_target_new_endpoint = egress_target_endpoint;
+			}
 
 			packet::data_wrapper wrapper(0);
 			auto [test_packet, test_packet_size] = wrapper.create_test_connection_packet();
