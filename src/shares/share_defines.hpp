@@ -20,6 +20,7 @@
 #ifdef __cpp_lib_format
 #include <format>
 #endif
+#include <botan/zfec.h>
 #include "aead.hpp"
 #include "../3rd_party/task_thread_pool.hpp"
 
@@ -30,7 +31,7 @@ constexpr bool linux_system = false;
 #endif
 
 constexpr std::string_view app_name = "udphop";
-constexpr std::string_view app_version = "20251129";
+constexpr std::string_view app_version = "20260207";
 
 enum class running_mode { unknow, empty, server, client, relay, relay_ingress, relay_egress };
 enum class encryption_mode { unknow, empty, none, plain_xor, aes_gcm, aes_ocb, chacha20, xchacha20 };
@@ -214,5 +215,6 @@ void print_ip_to_file(const std::string &message, const std::filesystem::path &l
 void print_message_to_file(const std::string &message, const std::filesystem::path &log_file);
 void print_status_to_file(const std::string &message, const std::filesystem::path &log_file);
 std::string to_speed_unit(size_t value, size_t duration_seconds);
+std::unique_ptr<Botan::ZFEC> fec_initialse(size_t fec_original_packet_count, size_t fec_redundant_packet_count);
 
 #endif // !_SHARE_HEADER_

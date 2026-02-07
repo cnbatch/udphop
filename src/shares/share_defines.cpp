@@ -304,3 +304,13 @@ std::string to_speed_unit(size_t value, size_t duration_seconds)
 
 	return (std::to_string((value_per_second / 1024 / 1024 / 1024)) + " GiB/s");
 }
+
+std::unique_ptr<Botan::ZFEC> fec_initialse(size_t fec_original_packet_count, size_t fec_redundant_packet_count)
+{
+	if (fec_original_packet_count == 0 || fec_redundant_packet_count == 0)
+		return nullptr;
+
+	size_t k = fec_original_packet_count;
+	size_t n = k + fec_redundant_packet_count;
+	return std::make_unique<Botan::ZFEC>(k, n);
+}

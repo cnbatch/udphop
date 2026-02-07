@@ -519,10 +519,6 @@ root      soft    nofile       300000
 ### Thread Pool
 The thread pool used by UDPHop comes from [task-thread-pool](https://github.com/alugowski/task-thread-pool), uses for parallel encryption and decryption processing in multiple connections.
 
-### FEC
-
-The FEC used by UDPHop uses Reed-Solomon coding, and the FEC code library comes from [fecpp](https://github.com/randombit/fecpp) with some modifications.
-
 ### Layout
 The code is written very casually, wherever I think of writing, so the layout is messy.
 

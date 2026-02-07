@@ -156,7 +156,7 @@ namespace modes
 
 		udp_session_ptr->ingress_sender.store(&listener_socket);
 
-		if (fec_enabled_ingress)
+		if (fecc_ingress != nullptr)
 		{
 			auto [fec_data_ptr, fec_data_size] = fec_unpack_listener(udp_session_ptr, data_ptr, plain_size);
 			if (fec_data_ptr == nullptr)
@@ -175,7 +175,7 @@ namespace modes
 		{
 			uint8_t *response_init_ptr = data_ptr + RAW_HEADER_FEC_SIZE;
 			auto [response_packet_ptr, response_packet_size] = udp_session_ptr->wrapper_ptr->create_keep_alive_response_packet(response_init_ptr);
-			if (fec_enabled_ingress)
+			if (fecc_ingress != nullptr)
 				std::tie(response_packet_ptr, response_packet_size) = udp_session_ptr->wrapper_ptr->prepend_header_fec(feature::keep_alive_response, response_init_ptr, response_packet_size, 0, 0);
 
 			auto [error_message, cipher_size] = co_await cipher_operations_ingress.async_encrypt(network_io, response_packet_ptr, (int)response_packet_size);
@@ -220,19 +220,13 @@ namespace modes
 
 		udp_session_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(from_udp_endpoint);
 		udp_session_ptr->ingress_sender.store(&listener_socket);
-
-		if (fec_enabled_ingress)
-		{
-			size_t K = current_settings.ingress->fec_original_packet_count;
-			size_t N = K + current_settings.ingress->fec_redundant_packet_count;
-			udp_session_ptr->fec_ingress_control.fecc.reset_martix(K, N);
-		}
+		udp_session_ptr->fec_ingress_control.fecc = fecc_ingress.get();
 
 		switch (feature_value)
 		{
 		case feature::keep_alive:
 		{
-			if (fec_enabled_ingress)
+			if (fecc_ingress != nullptr)
 			{
 				auto [response_packet, response_packet_size] = udp_session_ptr->wrapper_ptr->create_random_small_packet();
 				size_t packed_data_size = udp_session_ptr->wrapper_ptr->pack_data_with_fec(feature::keep_alive_response, response_packet.get(), response_packet_size, 0, 0);
@@ -260,7 +254,7 @@ namespace modes
 			break;
 		}
 		case feature::test_connection:
-			if (fec_enabled_ingress)
+			if (fecc_ingress != nullptr)
 			{
 				auto [response_packet, response_packet_size] = udp_session_ptr->wrapper_ptr->create_random_small_packet();
 				size_t fec_data_buffer_size = udp_session_ptr->wrapper_ptr->pack_data_with_fec(feature_value, response_packet.get(), response_packet_size, 0, 0);
@@ -283,7 +277,7 @@ namespace modes
 		case feature::keep_alive_response:
 			break;
 		case feature::raw_data:
-			if (fec_enabled_ingress)
+			if (fecc_ingress != nullptr)
 			{
 				auto [fec_data_ptr, fec_data_size] = fec_unpack_listener(udp_session_ptr, data_ptr, data_size);
 				if (fec_data_ptr == nullptr)
@@ -312,12 +306,9 @@ namespace modes
 		packet::data_wrapper *data_wrapper_ptr = udp_session_ptr->wrapper_ptr.get();
 		std::unique_ptr<uint8_t[]> packed_data;
 		size_t packed_data_size = 0;
-		if (fec_enabled_egress)
+		udp_session_ptr->fec_egress_control.fecc = fecc_egress.get();
+		if (fecc_egress != nullptr)
 		{
-			size_t K = current_settings.egress->fec_original_packet_count;
-			size_t N = K + current_settings.egress->fec_redundant_packet_count;
-			udp_session_ptr->fec_egress_control.fecc.reset_martix(K, N);
-
 			fec_control_data &fec_controllor = udp_session_ptr->fec_egress_control;
 			fec_controllor.fec_snd_cache.emplace_back(clone_into_pair(data_ptr, data_size));
 			std::tie(packed_data, packed_data_size) = data_wrapper_ptr->pack_data_with_fec(feature::raw_data, (const uint8_t *)data_ptr, data_size,
@@ -379,7 +370,7 @@ namespace modes
 
 		udp_session_ptr->ingress_sender.store(&listener_socket);
 
-		if (fec_enabled_ingress)
+		if (fecc_ingress != nullptr)
 		{
 			auto [fec_data_ptr, fec_data_size] = fec_unpack_listener(udp_session_ptr, data_ptr, data_size);
 			if (fec_data_ptr == nullptr)
@@ -398,7 +389,7 @@ namespace modes
 		{
 			uint8_t *response_init_ptr = data_ptr + RAW_HEADER_FEC_SIZE;
 			auto [response_packet_ptr, response_packet_size] = udp_session_ptr->wrapper_ptr->create_keep_alive_response_packet(response_init_ptr);
-			if (fec_enabled_ingress)
+			if (fecc_ingress != nullptr)
 				std::tie(response_packet_ptr, response_packet_size) = udp_session_ptr->wrapper_ptr->prepend_header_fec(feature::keep_alive_response, response_init_ptr, response_packet_size, 0, 0);
 
 			auto [error_message, cipher_size] = co_await cipher_operations_ingress.async_encrypt(network_io, response_packet_ptr, (int)response_packet_size);
@@ -487,7 +478,7 @@ namespace modes
 		{
 			uint8_t *response_init_ptr = data_ptr + RAW_HEADER_FEC_SIZE;
 			auto [response_packet_ptr, response_packet_size] = udp_session_ptr->wrapper_ptr->create_keep_alive_response_packet(response_init_ptr);
-			if (fec_enabled_egress)
+			if (fecc_egress != nullptr)
 				std::tie(response_packet_ptr, response_packet_size) = udp_session_ptr->wrapper_ptr->prepend_header_fec(feature::keep_alive_response, response_init_ptr, response_packet_size, 0, 0);
 
 			auto [error_message, cipher_size] = co_await cipher_operations_egress.async_encrypt(network_io, response_packet_ptr, (int)response_packet_size);
@@ -505,7 +496,7 @@ namespace modes
 			break;
 		case feature::raw_data:
 		{
-			if (fec_enabled_egress)
+			if (fecc_egress != nullptr)
 			{
 				auto [fec_data_ptr, fec_data_size] = fec_unpack_forwarder(udp_session_ptr, data_ptr, plain_size);
 				if (fec_data_ptr == nullptr)
@@ -525,7 +516,7 @@ namespace modes
 	void relay_mode::send_by_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> original_cache, uint8_t *data_ptr, size_t data_size)
 	{
 		asio::error_code ec;
-		if (fec_enabled_egress)
+		if (fecc_egress != nullptr)
 		{
 			fec_maker_via_forwarder(udp_session_ptr, std::move(original_cache), data_ptr, data_size);
 		}
@@ -557,7 +548,7 @@ namespace modes
 		uint8_t *received_data_ptr = data_ptr;
 		size_t received_size = data_size;
 		asio::error_code ec;
-		if (fec_enabled_ingress)
+		if (fecc_ingress != nullptr)
 		{
 			fec_maker_via_listener(udp_session_ptr, std::move(original_cache), received_data_ptr, received_size);
 		}
@@ -604,7 +595,7 @@ namespace modes
 				uint8_t *data_ptr = cache_array.get() + RAW_HEADER_FEC_SIZE;
 				uint8_t *response_packet_ptr;
 				size_t response_packet_size;
-				if (fec_enabled_ingress)
+				if (fecc_ingress != nullptr)
 					std::tie(response_packet_ptr, response_packet_size) = wrapper_zero.create_test_connection_packet_with_fec(data_ptr, test_iden, 0, 0);
 				else
 					std::tie(response_packet_ptr, response_packet_size) = wrapper_zero.create_test_connection_packet(data_ptr, test_iden);
@@ -733,28 +724,22 @@ namespace modes
 		if (fec_controllor.fec_snd_cache.size() == current_settings.ingress->fec_original_packet_count)
 		{
 			auto [array_data, fec_align_length, total_size] = compact_into_container(fec_controllor.fec_snd_cache);
-			auto redundants = fec_controllor.fecc.encode(array_data.get(), total_size, fec_align_length);
-			for (auto &data_ptr : redundants)
-			{
-				auto [fec_redundant_buffer, fec_redundant_buffer_size] = udp_session_ptr->wrapper_ptr->pack_data_with_fec(
-					feature::raw_data,
-					(const uint8_t *)data_ptr.get(), fec_align_length,
-					fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
 
-				std::shared_ptr<uint8_t[]> fec_redundant_buffer_sp = std::move(fec_redundant_buffer);
-				parallel_pool.submit_detach([this, udp_session_ptr, fec_redundant_buffer_sp, fec_redundant_buffer_size]() mutable
-					{
-						auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, fec_redundant_buffer_sp.get(), (int)fec_redundant_buffer_size);
-						if (!error_message.empty() || cipher_size == 0)
-							return;
-						auto asio_buffer = asio::buffer(fec_redundant_buffer_sp.get(), cipher_size);
-						udp_socket *ingress_sender = udp_session_ptr->ingress_sender.load();
-						std::shared_ptr<udp::endpoint> ingress_source_endpoint = load_atomic_ptr(udp_session_ptr->ingress_source_endpoint);
-						ingress_sender->async_send_to(asio_buffer, *ingress_source_endpoint, [fec_redundant_buffer_sp](auto, auto) {});
-						status_counters_server_role.egress_raw_traffic += cipher_size;
-						status_counters_server_role.egress_raw_traffic_each_second += cipher_size;
-					});
-			}
+			auto encoder_fn_skip = [](size_t, const uint8_t *, size_t) {};
+			auto encoder_fn_invoke = [&](size_t share, const uint8_t bits[], size_t length)
+				{
+					auto [fec_redundant_buffer, fec_redundant_buffer_size] = udp_session_ptr->wrapper_ptr->pack_data_with_fec(
+						feature::raw_data, bits, length, fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
+					fec_completion_sender_via_listener(udp_session_ptr, std::move(fec_redundant_buffer), fec_redundant_buffer_size);
+				};
+
+			Botan::ZFEC::output_cb_t encoder_cb_fn[2] = { encoder_fn_skip, encoder_fn_invoke };
+			auto encoder_fn = [&](size_t share, const uint8_t bits[], size_t length)
+				{
+					int invoke_at = int(share >= current_settings.fec_original_packet_count);
+					encoder_cb_fn[invoke_at](share, bits, length);
+				};
+			fec_controllor.fecc->encode(array_data.get(), total_size, encoder_fn);
 			fec_controllor.fec_snd_cache.clear();
 			fec_controllor.fec_snd_sub_sn.store(0);
 			fec_controllor.fec_snd_sn++;
@@ -789,30 +774,21 @@ namespace modes
 		if (fec_controllor.fec_snd_cache.size() == current_settings.egress->fec_original_packet_count)
 		{
 			auto [array_data, fec_align_length, total_size] = compact_into_container(fec_controllor.fec_snd_cache);
-			auto redundants = fec_controllor.fecc.encode(array_data.get(), total_size, fec_align_length);
-			for (auto &data_ptr : redundants)
-			{
-				auto [fec_redundant_buffer, fec_redundant_buffer_size] = udp_session_ptr->wrapper_ptr->pack_data_with_fec(
-					feature::raw_data,
-					(const uint8_t *)data_ptr.get(), fec_align_length,
-					fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
-		
-				std::shared_ptr<uint8_t[]> fec_redundant_buffer_sp = std::move(fec_redundant_buffer);
-				parallel_pool.submit_detach([this, udp_session_ptr, fec_redundant_buffer_sp, fec_redundant_buffer_size]() mutable
-					{
-						std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
-						std::shared_ptr<udp::endpoint> egress_target_endpoint = load_atomic_ptr(udp_session_ptr->egress_target_endpoint);
-						if (egress_forwarder == nullptr || egress_target_endpoint == nullptr)
-							return;
-						auto [error_message, cipher_size] = encrypt_data(current_settings.egress->encryption_password, current_settings.egress->encryption, fec_redundant_buffer_sp.get(), (int)fec_redundant_buffer_size);
-						if (!error_message.empty() || cipher_size == 0)
-							return;
-						auto asio_buffer = asio::buffer(fec_redundant_buffer_sp.get(), cipher_size);
-						egress_forwarder->async_send_to(asio_buffer, *egress_target_endpoint, [fec_redundant_buffer_sp](auto, auto) {});
-						status_counters_forwarder_role.egress_raw_traffic += cipher_size;
-						status_counters_forwarder_role.egress_raw_traffic_each_second += cipher_size;
-					});
-			}
+			auto encoder_fn_skip = [](size_t, const uint8_t *, size_t) {};
+			auto encoder_fn_invoke = [&](size_t share, const uint8_t bits[], size_t length)
+				{
+					auto [fec_redundant_buffer, fec_redundant_buffer_size] = udp_session_ptr->wrapper_ptr->pack_data_with_fec(
+						feature::raw_data, bits, length, fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
+					fec_completion_sender_via_forwarder(udp_session_ptr, std::move(fec_redundant_buffer), fec_redundant_buffer_size);
+				};
+
+			Botan::ZFEC::output_cb_t encoder_cb_fn[2] = { encoder_fn_skip, encoder_fn_invoke };
+			auto encoder_fn = [&](size_t share, const uint8_t bits[], size_t length)
+				{
+					int invoke_at = int(share >= current_settings.fec_original_packet_count);
+					encoder_cb_fn[invoke_at](share, bits, length);
+				};
+			fec_controllor.fecc->encode(array_data.get(), total_size, encoder_fn);			
 			fec_controllor.fec_snd_cache.clear();
 			fec_controllor.fec_snd_sub_sn.store(0);
 			fec_controllor.fec_snd_sn++;
@@ -898,20 +874,33 @@ namespace modes
 			}
 			auto [recv_data, fec_align_length] = compact_into_container(mapped_data, max_fec_data_count);
 			auto array_data = mapped_pair_to_mapped_pointer(recv_data);
-			auto restored_data = fec_controllor.fecc.decode(array_data, fec_align_length);
-
-			if (!restored_data.empty())
-			{
-				std::shared_ptr<udp::endpoint> egress_target_endpoint = load_atomic_ptr(udp_session_ptr->egress_target_endpoint);
-				for (auto &[i, data] : restored_data)
+			auto decoder_fn_skip = [](size_t, const uint8_t *, size_t) {};
+			auto decoder_fn_invoke = [&](size_t index, const uint8_t bits[], size_t length)
 				{
-					auto [missed_data_ptr, missed_data_size] = extract_from_container(data);
+					auto [missed_data_ptr, missed_data_size] = extract_from_container(bits);
 					std::unique_ptr<uint8_t[]> data_copy = std::make_unique_for_overwrite<uint8_t[]>(missed_data_size + BUFFER_EXPAND_SIZE + RAW_HEADER_FEC_SIZE);
 					uint8_t *data_ptr = data_copy.get() + RAW_HEADER_FEC_SIZE;
 					std::copy_n(missed_data_ptr, missed_data_size, data_ptr);
 					send_by_forwarder(udp_session_ptr, std::move(data_copy), data_ptr, missed_data_size);
 					status_counters_server_role.fec_recovery_count++;
-				}
+				};
+
+			Botan::ZFEC::output_cb_t decoder_cb_fn[2] = { decoder_fn_skip, decoder_fn_invoke };
+			auto decoder_fn = [&](size_t index, const uint8_t bits[], size_t length)
+				{
+					int invoke_at = int(!mapped_data.contains((uint16_t)index));
+					decoder_cb_fn[invoke_at](index, bits, length);
+				};
+
+			try
+			{
+				fec_controllor.fecc->decode_shares(array_data, fec_align_length, decoder_fn);
+			}
+			catch (std::exception &ex)
+			{
+				std::string error_message = time_to_string_with_square_brackets() + ex.what() + "\n";
+				std::cerr << error_message;
+				print_message_to_file(error_message, current_settings.log_messages);
 			}
 
 			fec_controllor.fec_rcv_restored.insert(sn);
@@ -947,24 +936,73 @@ namespace modes
 			}
 			auto [recv_data, fec_align_length] = compact_into_container(mapped_data, max_fec_data_count);
 			auto array_data = mapped_pair_to_mapped_pointer(recv_data);
-			auto restored_data = fec_controllor.fecc.decode(array_data, fec_align_length);
-
-			if (!restored_data.empty())
-			{
-				std::shared_ptr<udp::endpoint> udp_endpoint = load_atomic_ptr(udp_session_ptr->ingress_source_endpoint);
-				for (auto &[i, data] : restored_data)
+			auto decoder_fn_skip = [](size_t, const uint8_t *, size_t) {};
+			auto decoder_fn_invoke = [&](size_t index, const uint8_t bits[], size_t length)
 				{
-					auto [missed_data_ptr, missed_data_size] = extract_from_container(data);
+					auto [missed_data_ptr, missed_data_size] = extract_from_container(bits);
 					std::unique_ptr<uint8_t[]> data_copy = std::make_unique_for_overwrite<uint8_t[]>(missed_data_size + BUFFER_EXPAND_SIZE + RAW_HEADER_FEC_SIZE);
 					uint8_t *data_ptr = data_copy.get() + RAW_HEADER_FEC_SIZE;
 					std::copy_n(missed_data_ptr, missed_data_size, data_ptr);
 					send_by_listener(udp_session_ptr, std::move(data_copy), data_ptr, missed_data_size);
 					status_counters_forwarder_role.fec_recovery_count++;
-				}
+				};
+
+			Botan::ZFEC::output_cb_t decoder_cb_fn[2] = { decoder_fn_skip, decoder_fn_invoke };
+			auto decoder_fn = [&](size_t index, const uint8_t bits[], size_t length)
+				{
+					int invoke_at = int(mapped_data.contains((uint16_t)index));
+					decoder_cb_fn[invoke_at](index, bits, length);
+				};
+
+			try
+			{
+				fec_controllor.fecc->decode_shares(array_data, fec_align_length, decoder_fn);
+			}
+			catch (std::exception &ex)
+			{
+				std::string error_message = time_to_string_with_square_brackets() + ex.what() + "\n";
+				std::cerr << error_message;
+				print_message_to_file(error_message, current_settings.log_messages);
 			}
 
 			fec_controllor.fec_rcv_restored.insert(sn);
 		}
+	}
+
+	void relay_mode::fec_completion_sender_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> fec_redundant_buffer, size_t fec_redundant_buffer_size)
+	{
+		std::shared_ptr<uint8_t[]> fec_redundant_buffer_sp = std::move(fec_redundant_buffer);
+		parallel_pool.submit_detach([this, udp_session_ptr, fec_redundant_buffer_sp, fec_redundant_buffer_size]() mutable
+			{
+				auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, fec_redundant_buffer_sp.get(), (int)fec_redundant_buffer_size);
+				if (!error_message.empty() || cipher_size == 0)
+					return;
+				auto asio_buffer = asio::buffer(fec_redundant_buffer_sp.get(), cipher_size);
+				udp_socket *ingress_sender = udp_session_ptr->ingress_sender.load();
+				std::shared_ptr<udp::endpoint> ingress_source_endpoint = load_atomic_ptr(udp_session_ptr->ingress_source_endpoint);
+				ingress_sender->async_send_to(asio_buffer, *ingress_source_endpoint, [fec_redundant_buffer_sp](auto, auto) {});
+				status_counters_server_role.egress_raw_traffic += cipher_size;
+				status_counters_server_role.egress_raw_traffic_each_second += cipher_size;
+			});
+	}
+
+	void relay_mode::fec_completion_sender_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> fec_redundant_buffer, size_t fec_redundant_buffer_size)
+	{
+		std::shared_ptr<uint8_t[]> fec_redundant_buffer_sp = std::move(fec_redundant_buffer);
+		parallel_pool.submit_detach([this, udp_session_ptr, fec_redundant_buffer_sp, fec_redundant_buffer_size]() mutable
+			{
+				std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
+				std::shared_ptr<udp::endpoint> egress_target_endpoint = load_atomic_ptr(udp_session_ptr->egress_target_endpoint);
+				if (egress_forwarder == nullptr || egress_target_endpoint == nullptr)
+					return;
+				auto [error_message, cipher_size] = encrypt_data(current_settings.egress->encryption_password, current_settings.egress->encryption, fec_redundant_buffer_sp.get(), (int)fec_redundant_buffer_size);
+				if (!error_message.empty() || cipher_size == 0)
+					return;
+				auto asio_buffer = asio::buffer(fec_redundant_buffer_sp.get(), cipher_size);
+				egress_forwarder->async_send_to(asio_buffer, *egress_target_endpoint, [fec_redundant_buffer_sp](auto, auto) {});
+				status_counters_forwarder_role.egress_raw_traffic += cipher_size;
+				status_counters_forwarder_role.egress_raw_traffic_each_second += cipher_size;
+			});
 	}
 
 	void relay_mode::inspect_change_port_status(std::shared_ptr<udp_mappings> udp_mappings_ptr, std::shared_ptr<udp_socket> forwarder_socket)
@@ -1213,7 +1251,7 @@ namespace modes
 		uint8_t *data_ptr = cache_array.get() + RAW_HEADER_FEC_SIZE;
 		uint8_t *response_packet_ptr;
 		size_t response_packet_size;
-		if (fec_enabled_egress)
+		if (fecc_egress != nullptr)
 			std::tie(response_packet_ptr, response_packet_size) = udp_session_ptr->wrapper_ptr->create_keep_alive_packet_with_fec(data_ptr, 0, 0);
 		else
 			std::tie(response_packet_ptr, response_packet_size) = udp_session_ptr->wrapper_ptr->create_keep_alive_packet(data_ptr);
@@ -1469,9 +1507,6 @@ namespace modes
 	bool relay_mode::start()
 	{
 		std::cout << app_name << " is running as relay mode\n";
-
-		fec_enabled_ingress = current_settings.ingress->fec_original_packet_count > 0 && current_settings.ingress->fec_redundant_packet_count > 0;
-		fec_enabled_egress = current_settings.egress->fec_original_packet_count > 0 && current_settings.egress->fec_redundant_packet_count > 0;
 
 		uint16_t port_number = current_settings.ingress->listen_ports.front();
 		if (port_number == 0)

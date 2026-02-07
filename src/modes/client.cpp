@@ -144,12 +144,7 @@ namespace modes
 		udp_session_channels[key_number] = udp_session_ptr;
 		udp_endpoint_map_to_session[peer] = udp_session_ptr;
 
-		if (fec_enabled)
-		{
-			size_t K = current_settings.fec_original_packet_count;
-			size_t N = K + current_settings.fec_redundant_packet_count;
-			udp_session_ptr->fec_egress_control.fecc.reset_martix(K, N);
-		}
+		udp_session_ptr->fec_egress_control.fecc = fecc.get();
 
 		asio::error_code ec;
 		if (egress_target_endpoint->address().is_v4())
@@ -189,7 +184,7 @@ namespace modes
 		std::shared_ptr<udp::endpoint> egress_target_endpoint = load_atomic_ptr(udp_session_ptr->egress_target_endpoint);
 		if (egress_forwarder == nullptr || egress_target_endpoint == nullptr)
 			co_return;
-		if (fec_enabled)
+		if (fecc != nullptr)
 		{
 			fec_maker(udp_session_ptr, std::move(original_cache), data, data_size);
 		}
@@ -428,7 +423,7 @@ namespace modes
 		{
 			uint8_t *response_init_ptr = data_ptr + RAW_HEADER_FEC_SIZE;
 			auto [response_packet_ptr, response_packet_size] = udp_session_ptr->wrapper_ptr->create_keep_alive_response_packet(response_init_ptr);
-			if (fec_enabled)
+			if (fecc != nullptr)
 				std::tie(response_packet_ptr, response_packet_size) = udp_session_ptr->wrapper_ptr->prepend_header_fec(feature::keep_alive_response, response_init_ptr, response_packet_size, 0, 0);
 
 			auto [error_message, cipher_size] = co_await cipher_operations.async_encrypt(network_io, response_packet_ptr, (int)response_packet_size);
@@ -443,7 +438,7 @@ namespace modes
 			break;
 		case feature::raw_data:
 		{
-			if (fec_enabled)
+			if (fecc != nullptr)
 			{
 				auto [fec_data_ptr, fec_data_size] = fec_unpack(udp_session_ptr, data_ptr, plain_size);
 				if (fec_data_ptr == nullptr)
@@ -491,30 +486,21 @@ namespace modes
 		if (fec_controllor.fec_snd_cache.size() == current_settings.fec_original_packet_count)
 		{
 			auto [array_data, fec_align_length, total_size] = compact_into_container(fec_controllor.fec_snd_cache);
-			auto redundants = fec_controllor.fecc.encode(array_data.get(), total_size, fec_align_length);
-			for (auto &data_ptr : redundants)
-			{
-				auto [fec_redundant_buffer, fec_redundant_buffer_size] = udp_session_ptr->wrapper_ptr->pack_data_with_fec(
-					feature::raw_data,
-					(const uint8_t *)data_ptr.get(), fec_align_length,
-					fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
-		
-				std::shared_ptr<uint8_t[]> fec_redundant_buffer_sp = std::move(fec_redundant_buffer);
-				parallel_pool.submit_detach([this, udp_session_ptr, fec_redundant_buffer_sp, fec_redundant_buffer_size]() mutable
-					{
-						std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
-						std::shared_ptr<udp::endpoint> egress_target_endpoint = load_atomic_ptr(udp_session_ptr->egress_target_endpoint);
-						if (egress_forwarder == nullptr || egress_target_endpoint == nullptr)
-							return;
-						auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, fec_redundant_buffer_sp.get(), (int)fec_redundant_buffer_size);
-						if (!error_message.empty() || cipher_size == 0)
-							return;
-						auto asio_buffer = asio::buffer(fec_redundant_buffer_sp.get(), cipher_size);
-						egress_forwarder->async_send_to(asio_buffer, *egress_target_endpoint, [fec_redundant_buffer_sp](auto, auto) {});
-						status_counters.egress_raw_traffic += cipher_size;
-						status_counters.egress_raw_traffic_each_second += cipher_size;
-					});
-			}
+			auto encoder_fn_skip = [](size_t, const uint8_t *, size_t) {};
+			auto encoder_fn_invoke = [&](size_t share, const uint8_t bits[], size_t length)
+				{
+					auto [fec_redundant_buffer, fec_redundant_buffer_size] = udp_session_ptr->wrapper_ptr->pack_data_with_fec(
+						feature::raw_data, bits, length, fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
+					fec_completion_sender(udp_session_ptr, std::move(fec_redundant_buffer), fec_redundant_buffer_size);
+				};
+
+			Botan::ZFEC::output_cb_t encoder_cb_fn[2] = { encoder_fn_skip, encoder_fn_invoke };
+			auto encoder_fn = [&](size_t share, const uint8_t bits[], size_t length)
+				{
+					int invoke_at = int(share >= current_settings.fec_original_packet_count);
+					encoder_cb_fn[invoke_at](share, bits, length);
+				};
+			fec_controllor.fecc->encode(array_data.get(), total_size, encoder_fn);
 			fec_controllor.fec_snd_cache.clear();
 			fec_controllor.fec_snd_sub_sn.store(0);
 			fec_controllor.fec_snd_sn++;
@@ -575,19 +561,59 @@ namespace modes
 			}
 			auto [recv_data, fec_align_length] = compact_into_container(mapped_data, max_fec_data_count);
 			auto array_data = mapped_pair_to_mapped_pointer(recv_data);
-			auto restored_data = fec_controllor.fecc.decode(array_data, fec_align_length);
 
-			for (auto &[i, data] : restored_data)
+			auto decoder_fn_skip = [](size_t, const uint8_t *, size_t) {};
+			auto decoder_fn_invoke = [&](size_t index, const uint8_t bits[], size_t length)
+				{
+					auto [missed_data_ptr, missed_data_size] = extract_from_container(bits);
+					std::shared_ptr<udp::endpoint> udp_endpoint = load_atomic_ptr(udp_session_ptr->ingress_source_endpoint);
+					std::unique_ptr<uint8_t[]> missed_data_buffer = std::make_unique_for_overwrite<uint8_t[]>(missed_data_size);
+					uint8_t *missed_data_buffer_ptr = missed_data_buffer.get();
+					std::copy_n(missed_data_ptr, missed_data_size, missed_data_buffer_ptr);
+					udp_session_ptr->ingress_sender.load()->async_send_to(asio::buffer(missed_data_buffer_ptr, missed_data_size), *udp_endpoint,
+						[data_ = std::move(missed_data_buffer)](const asio::error_code &error, size_t bytes_transferred) {});
+					status_counters.fec_recovery_count++;
+				};
+
+			Botan::ZFEC::output_cb_t decoder_cb_fn[2] = { decoder_fn_skip, decoder_fn_invoke };
+			auto decoder_fn = [&](size_t index, const uint8_t bits[], size_t length)
+				{
+					int invoke_at = int(!mapped_data.contains((uint16_t)index));
+					decoder_cb_fn[invoke_at](index, bits, length);
+				};
+
+			try
 			{
-				auto [missed_data_ptr, missed_data_size] = extract_from_container(data);
-				std::shared_ptr<udp::endpoint> udp_endpoint = load_atomic_ptr(udp_session_ptr->ingress_source_endpoint);
-				udp_session_ptr->ingress_sender.load()->async_send_to(asio::buffer(missed_data_ptr, missed_data_size), *udp_endpoint,
-					[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
-				status_counters.fec_recovery_count++;
+				fec_controllor.fecc->decode_shares(array_data, fec_align_length, decoder_fn);
+			}
+			catch (std::exception &ex)
+			{
+				std::string error_message = time_to_string_with_square_brackets() + ex.what() + "\n";
+				std::cerr << error_message;
+				print_message_to_file(error_message, current_settings.log_messages);
 			}
 
 			fec_controllor.fec_rcv_restored.insert(sn);
 		}
+	}
+
+	void client_mode::fec_completion_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> fec_redundant_buffer, size_t fec_redundant_buffer_size)
+	{
+		std::shared_ptr<uint8_t[]> fec_redundant_buffer_sp = std::move(fec_redundant_buffer);
+		parallel_pool.submit_detach([this, udp_session_ptr, fec_redundant_buffer_sp, fec_redundant_buffer_size]() mutable
+			{
+				std::shared_ptr<udp_socket> egress_forwarder = load_atomic_ptr(udp_session_ptr->egress_forwarder);
+				std::shared_ptr<udp::endpoint> egress_target_endpoint = load_atomic_ptr(udp_session_ptr->egress_target_endpoint);
+				if (egress_forwarder == nullptr || egress_target_endpoint == nullptr)
+					return;
+				auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, fec_redundant_buffer_sp.get(), (int)fec_redundant_buffer_size);
+				if (!error_message.empty() || cipher_size == 0)
+					return;
+				auto asio_buffer = asio::buffer(fec_redundant_buffer_sp.get(), cipher_size);
+				egress_forwarder->async_send_to(asio_buffer, *egress_target_endpoint, [fec_redundant_buffer_sp](auto, auto) {});
+				status_counters.egress_raw_traffic += cipher_size;
+				status_counters.egress_raw_traffic_each_second += cipher_size;
+			});
 	}
 
 	void client_mode::inspect_change_port_status(std::shared_ptr<udp_mappings> udp_mappings_ptr, std::shared_ptr<udp_socket> forwarder_socket)
@@ -813,7 +839,7 @@ namespace modes
 					uint8_t *data_ptr = cache_array.get() + RAW_HEADER_FEC_SIZE;
 					uint8_t *response_packet_ptr;
 					size_t response_packet_size;
-					if (fec_enabled)
+					if (fecc != nullptr)
 						std::tie(response_packet_ptr, response_packet_size) = udp_session_ptr->wrapper_ptr->create_keep_alive_packet_with_fec(data_ptr, 0, 0);
 					else
 						std::tie(response_packet_ptr, response_packet_size) = udp_session_ptr->wrapper_ptr->create_keep_alive_packet(data_ptr);
@@ -923,8 +949,6 @@ namespace modes
 	bool client_mode::start()
 	{
 		std::cout << app_name << " is running as client mode\n";
-
-		fec_enabled = current_settings.fec_original_packet_count > 0 && current_settings.fec_redundant_packet_count > 0;
 
 		uint16_t port_number = current_settings.listen_ports.front();
 		if (port_number == 0)

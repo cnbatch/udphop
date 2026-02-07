@@ -521,10 +521,6 @@ root      soft    nofile       300000
 ### 线程池
 udphop 使用的线程池来自于 [task-thread-pool](https://github.com/alugowski/task-thread-pool)，用于多连接时的并行加解密处理。
 
-### FEC
-
-UDPHop 所用的 FEC 采用 Reed-Solomon 编码， FEC 代码库来自于 [fecpp](https://github.com/randombit/fecpp)，并作了些许修改。
-
 ### 版面
 代码写得很随意，想到哪写到哪，因此版面混乱。
 

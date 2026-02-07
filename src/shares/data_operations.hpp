@@ -20,6 +20,7 @@ std::pair<std::map<size_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>, size_
 std::vector<std::vector<uint8_t>> extract_from_container(const std::vector<std::vector<uint8_t>> &recovered_container);
 std::vector<uint8_t> copy_from_container(const std::vector<uint8_t> &recovered_container);
 std::pair<uint8_t*, size_t> extract_from_container(const std::vector<uint8_t> &recovered_container);
+std::pair<const uint8_t *, size_t> extract_from_container(const uint8_t *recovered_container);
 
 class async_cipher_operations
 {

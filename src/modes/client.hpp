@@ -22,6 +22,7 @@ namespace modes
 		async_cipher_operations cipher_operations;
 		std::map<udp::endpoint, std::shared_ptr<udp_mappings>> udp_endpoint_map_to_session;
 		std::unordered_map<uint32_t, std::shared_ptr<udp_mappings>> udp_session_channels;
+		const std::unique_ptr<Botan::ZFEC> fecc;
 
 		asio::steady_timer timer_find_timeout;
 		asio::steady_timer timer_keep_alive;
@@ -37,7 +38,6 @@ namespace modes
 		status_records status_counters;
 		traffic_pv_records traffic_pv_counters;
 		bool startup_has_error;
-		bool fec_enabled;
 
 		asio::awaitable<void> listener_ipv6_udp(uint16_t port);
 		asio::awaitable<void> listener_ipv4_udp(uint16_t port);
@@ -58,6 +58,7 @@ namespace modes
 		void fec_maker(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> original_cache, uint8_t *data, size_t data_size);
 		std::pair<uint8_t *, size_t> fec_unpack(std::shared_ptr<udp_mappings> &udp_session_ptr, uint8_t *original_data_ptr, size_t plain_size);
 		void fec_find_missings(udp_mappings *udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
+		void fec_completion_sender(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> fec_redundant_buffer, size_t fec_redundant_buffer_size);
 
 		void inspect_change_port_status(std::shared_ptr<udp_mappings> udp_mappings_ptr, std::shared_ptr<udp_socket> forwarder_socket);
 		asio::awaitable<void> change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr, std::shared_ptr<udp_socket> forwarder_socket);
@@ -84,13 +85,13 @@ namespace modes
 			parallel_pool(parallel_pool),
 			current_settings(settings),
 			cipher_operations(parallel_pool, settings.encryption_password, settings.encryption),
+			fecc(fec_initialse(settings.fec_original_packet_count, settings.fec_redundant_packet_count)),
 			timer_find_timeout(network_io),
 			timer_keep_alive(network_io),
 			timer_status_log(task_context),
 			timer_peak_valley_traffic(task_context),
 			timer_detect_startup_errors(task_context),
-			startup_has_error(false),
-			fec_enabled(false) { }
+			startup_has_error(false) { }
 
 		client_mode(client_mode &&other) noexcept:
 			network_io(other.network_io),
@@ -98,13 +99,13 @@ namespace modes
 			parallel_pool(other.parallel_pool),
 			current_settings(other.current_settings),
 			cipher_operations(parallel_pool, current_settings.encryption_password, current_settings.encryption),
+			fecc(fec_initialse(current_settings.fec_original_packet_count, current_settings.fec_redundant_packet_count)),
 			timer_find_timeout(std::move(other.timer_find_timeout)),
 			timer_keep_alive(std::move(other.timer_keep_alive)),
 			timer_status_log(std::move(other.timer_status_log)),
 			timer_peak_valley_traffic(std::move(other.timer_peak_valley_traffic)),
 			timer_detect_startup_errors(std::move(other.timer_detect_startup_errors)),
-			startup_has_error(other.startup_has_error),
-			fec_enabled(other.fec_enabled) { }
+			startup_has_error(other.startup_has_error) { }
 
 		bool start();
 	};

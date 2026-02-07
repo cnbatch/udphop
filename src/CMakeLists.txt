@@ -6,7 +6,7 @@ add_subdirectory(modes)
 target_link_libraries(${PROJECT_NAME} PRIVATE RUNNINGMODES)
 target_link_libraries(${PROJECT_NAME} PRIVATE NETCONNECTIONS)
 target_link_libraries(${PROJECT_NAME} PRIVATE SHAREDEFINES)
-target_link_libraries(${PROJECT_NAME} PRIVATE THRID_PARTIES)
+#target_link_libraries(${PROJECT_NAME} PRIVATE THRID_PARTIES)
 
 if (WIN32)
 	target_link_libraries(${PROJECT_NAME} PUBLIC wsock32 ws2_32)

@@ -20,7 +20,6 @@
 #include <asio.hpp>
 
 #include "../shares/share_defines.hpp"
-#include "../3rd_party/fecpp.hpp"
 #include "stun.hpp"
 
 
@@ -465,7 +464,7 @@ struct fec_control_data
 	std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> fec_snd_cache;
 	std::map<uint32_t, std::map<uint16_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>> fec_rcv_cache;	// uint32_t = snd_sn, uint16_t = sub_sn
 	std::unordered_set<uint32_t> fec_rcv_restored;
-	fecpp::fec_code fecc;
+	Botan::ZFEC *fecc;
 };
 
 struct udp_mappings

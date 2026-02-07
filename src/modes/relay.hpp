@@ -21,6 +21,8 @@ namespace modes
 		user_settings current_settings;
 		async_cipher_operations cipher_operations_ingress;
 		async_cipher_operations cipher_operations_egress;
+		const std::unique_ptr<Botan::ZFEC> fecc_ingress;
+		const std::unique_ptr<Botan::ZFEC> fecc_egress;
 
 		std::unique_ptr<rfc8489::stun_header> stun_header;
 		std::atomic<uint16_t> external_ipv4_port;
@@ -50,8 +52,6 @@ namespace modes
 		asio::steady_timer timer_update_local_target;
 		asio::steady_timer timer_detect_startup_errors;
 		bool startup_has_error;
-		bool fec_enabled_ingress;
-		bool fec_enabled_egress;
 
 		asio::awaitable<void> listener_ipv6_udp(uint16_t port);
 		asio::awaitable<void> listener_ipv4_udp(uint16_t port);
@@ -79,6 +79,8 @@ namespace modes
 		std::pair<uint8_t *, size_t> fec_unpack_forwarder(std::shared_ptr<udp_mappings> &udp_session_ptr, uint8_t *original_data_ptr, size_t plain_size);
 		void fec_find_missings_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 		void fec_find_missings_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
+		void fec_completion_sender_via_listener(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> fec_redundant_buffer, size_t fec_redundant_buffer_size);
+		void fec_completion_sender_via_forwarder(std::shared_ptr<udp_mappings> udp_session_ptr, std::unique_ptr<uint8_t[]> fec_redundant_buffer, size_t fec_redundant_buffer_size);
 
 		void inspect_change_port_status(std::shared_ptr<udp_mappings> udp_mappings_ptr, std::shared_ptr<udp_socket> forwarder_socket);
 		asio::awaitable<void> change_new_port(std::shared_ptr<udp_mappings> udp_mappings_ptr, std::shared_ptr<udp_socket> forwarder_socket);
@@ -109,6 +111,8 @@ namespace modes
 			current_settings(settings),
 			cipher_operations_ingress(parallel_pool, settings.ingress->encryption_password, settings.ingress->encryption),
 			cipher_operations_egress(parallel_pool, settings.egress->encryption_password, settings.egress->encryption),
+			fecc_ingress(settings.ingress == nullptr ? nullptr : fec_initialse(settings.ingress->fec_original_packet_count, settings.ingress->fec_redundant_packet_count)),
+			fecc_egress(settings.egress == nullptr ? nullptr : fec_initialse(settings.egress->fec_original_packet_count, settings.egress->fec_redundant_packet_count)),
 			timer_find_timeout(network_io),
 			timer_keep_alive(network_io),
 			timer_stun(network_io),
@@ -116,9 +120,7 @@ namespace modes
 			timer_peak_valley_traffic(task_context),
 			timer_update_local_target(network_io),
 			timer_detect_startup_errors(task_context),
-			startup_has_error(false),
-			fec_enabled_ingress(false),
-			fec_enabled_egress(false) {}
+			startup_has_error(false) {}
 
 		relay_mode(relay_mode &&other) noexcept :
 			network_io(other.network_io),
@@ -127,13 +129,14 @@ namespace modes
 			cipher_operations_ingress(parallel_pool, current_settings.ingress->encryption_password, current_settings.ingress->encryption),
 			cipher_operations_egress(parallel_pool, current_settings.egress->encryption_password, current_settings.egress->encryption),
 			parallel_pool(other.parallel_pool), timer_find_timeout(std::move(other.timer_find_timeout)), timer_keep_alive(std::move(other.timer_keep_alive)),
+			fecc_ingress(current_settings.ingress == nullptr ? nullptr : fec_initialse(current_settings.ingress->fec_original_packet_count, current_settings.ingress->fec_redundant_packet_count)),
+			fecc_egress(current_settings.egress == nullptr ? nullptr : fec_initialse(current_settings.egress->fec_original_packet_count, current_settings.egress->fec_redundant_packet_count)),
 			timer_stun(std::move(other.timer_stun)),
 			timer_status_log(std::move(other.timer_status_log)),
 			timer_peak_valley_traffic(std::move(other.timer_peak_valley_traffic)),
 			timer_update_local_target(std::move(other.timer_update_local_target)),
-			timer_detect_startup_errors(std::move(other.timer_detect_startup_errors)), startup_has_error(other.startup_has_error),
-			fec_enabled_ingress(other.fec_enabled_ingress),
-			fec_enabled_egress(other.fec_enabled_egress) {};
+			timer_detect_startup_errors(std::move(other.timer_detect_startup_errors)),
+			startup_has_error(other.startup_has_error) {};
 
 		bool start();
 	};

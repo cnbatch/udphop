@@ -57,12 +57,6 @@
     <ClCompile Include="..\..\src\shares\configurations.cpp">
       <Filter>Source Files\shares</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\3rd_party\fecpp.cpp">
-      <Filter>Source Files\3rd_party</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\3rd_party\fecpp_ssse3.cpp">
-      <Filter>Source Files\3rd_party</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\modes\server.cpp">
       <Filter>Source Files\modes</Filter>
     </ClCompile>
@@ -100,9 +94,6 @@
     </ClInclude>
     <ClInclude Include="..\..\src\shares\configurations.hpp">
       <Filter>Header Files\shares</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\3rd_party\fecpp.hpp">
-      <Filter>Header Files\3rd_party</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\3rd_party\task_thread_pool.hpp">
       <Filter>Header Files\3rd_party</Filter>
