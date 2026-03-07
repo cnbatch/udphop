@@ -35,8 +35,6 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 	add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 endif()
 
-add_compile_options("$<$<CXX_COMPILER_ID:AppleClang,Clang>:-fexperimental-library>")
-
 add_executable(${PROJECT_NAME} src/main.cpp)
 
 add_subdirectory(src)
